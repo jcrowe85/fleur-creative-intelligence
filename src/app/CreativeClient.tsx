@@ -78,9 +78,9 @@ function Stat({
 function CoverageBar({ row, max }: { row: CoverageRow; max: number }) {
   const w = max > 0 ? (row.assets / max) * 100 : 0;
   return (
-    <div className="grid grid-cols-[minmax(140px,1.2fr)_1fr_auto] items-center gap-3 py-1.5">
+    <div className="grid grid-cols-[minmax(170px,1.2fr)_1fr_auto] items-center gap-3 py-2">
       <div className="flex items-center gap-1.5 min-w-0">
-        <span className="truncate text-sm">{row.label}</span>
+        <span className="truncate text-base">{row.label}</span>
         {row.strategicPriority ? (
           <span
             title="A pillar Fleur can uniquely own"
@@ -98,7 +98,7 @@ function CoverageBar({ row, max }: { row: CoverageRow; max: number }) {
           style={{ width: `${Math.max(w, row.assets > 0 ? 3 : 0)}%` }}
         />
       </div>
-      <div className="flex items-center gap-3 text-xs tabular-nums text-muted-foreground">
+      <div className="flex items-center gap-3 text-sm tabular-nums text-muted-foreground">
         <span className="w-8 text-right">{row.assets}</span>
         <span className="w-12 text-right">{row.spend > 0 ? money(row.spend) : "—"}</span>
         <span className="w-12 text-right">
@@ -122,7 +122,7 @@ function AxisPanel({ title, cov }: { title: string; cov: AxisCoverage }) {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-[minmax(140px,1.2fr)_1fr_auto] gap-3 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+        <div className="grid grid-cols-[minmax(170px,1.2fr)_1fr_auto] gap-3 pb-1 text-xs uppercase tracking-wider text-muted-foreground">
           <span />
           <span />
           <span className="flex gap-3">
@@ -181,9 +181,9 @@ function CampaignPanel({
         </div>
       </CardHeader>
       <CardContent className="overflow-x-auto p-0">
-        <table className="w-full min-w-[1060px] text-sm">
+        <table className="w-full min-w-[1180px] text-base">
           <thead>
-            <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
               <th className="px-4 py-2.5">Campaign</th>
               <th className="px-2 py-2.5">Diversity</th>
               <th className="px-2 py-2.5">Coverage of each axis</th>
@@ -198,7 +198,7 @@ function CampaignPanel({
           <tbody>
             {shown.map((r) => (
               <tr key={r.campaignId} className="border-b border-border/60 last:border-0">
-                <td className="max-w-[280px] px-4 py-2.5">
+                <td className="max-w-[320px] px-4 py-3">
                   <div className="flex items-center gap-2">
                     <span
                       title={r.effectiveStatus}
@@ -209,7 +209,7 @@ function CampaignPanel({
                     />
                     <span className="min-w-0">
                       <span className="block truncate">{r.name}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
+                      <span className="block truncate text-sm text-muted-foreground">
                         {r.assets} creatives · {r.territories} territories
                         {r.unclassified > 0 ? ` · ${r.unclassified} pending` : ""}
                         {r.dailyBudget ? ` · $${r.dailyBudget.toFixed(0)}/day` : ""}
@@ -217,11 +217,11 @@ function CampaignPanel({
                     </span>
                   </div>
                 </td>
-                <td className="px-2 py-2.5">
+                <td className="px-2 py-3">
                   <div className="flex items-center gap-2">
                     <span
                       className={
-                        "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase " +
+                        "rounded px-2 py-1 text-xs font-semibold uppercase " +
                         (GRADE_TONE[r.grade] ?? "bg-muted text-muted-foreground")
                       }
                     >
@@ -229,7 +229,7 @@ function CampaignPanel({
                     </span>
                     {r.grade.length === 1 ? (
                       <span
-                        className="text-xs tabular-nums text-muted-foreground"
+                        className="text-sm tabular-nums text-muted-foreground"
                         title="Share of the taxonomy in play, averaged over the four axes"
                       >
                         {r.diversity}%
@@ -237,7 +237,7 @@ function CampaignPanel({
                     ) : null}
                   </div>
                 </td>
-                <td className="px-2 py-2.5">
+                <td className="px-2 py-3">
                   <div className="flex flex-col gap-1">
                     {(
                       [
@@ -248,10 +248,10 @@ function CampaignPanel({
                       ] as const
                     ).map(([label, [used, total], score]) => (
                       <div key={label} className="flex items-center gap-2">
-                        <span className="w-14 shrink-0 text-[10px] text-muted-foreground">
+                        <span className="w-16 shrink-0 text-xs text-muted-foreground">
                           {label}
                         </span>
-                        <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
+                        <span className="h-2 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
                           <span
                             className={
                               "block h-full rounded-full " +
@@ -261,7 +261,7 @@ function CampaignPanel({
                           />
                         </span>
                         <span
-                          className="w-12 shrink-0 text-[10px] tabular-nums text-muted-foreground"
+                          className="w-14 shrink-0 text-xs tabular-nums text-muted-foreground"
                           title={`${used} of ${total} used, weighted for how evenly`}
                         >
                           {used}/{total}
@@ -270,7 +270,7 @@ function CampaignPanel({
                     ))}
                   </div>
                 </td>
-                <td className="max-w-[190px] px-2 py-2.5 text-xs">
+                <td className="max-w-[210px] px-2 py-3 text-sm">
                   {r.dominant ? (
                     <span
                       className={
@@ -283,19 +283,19 @@ function CampaignPanel({
                     <span className="text-muted-foreground">—</span>
                   )}
                 </td>
-                <td className="px-2 py-2.5 text-right text-xs tabular-nums">
+                <td className="px-2 py-3 text-right text-sm tabular-nums">
                   {r.spend > 0 ? money(r.spend) : "—"}
                 </td>
-                <td className="px-2 py-2.5 text-right text-xs tabular-nums">
+                <td className="px-2 py-3 text-right text-sm tabular-nums">
                   {r.cpm ? `$${r.cpm.toFixed(0)}` : "—"}
                 </td>
-                <td className="px-2 py-2.5 text-right text-xs tabular-nums">
+                <td className="px-2 py-3 text-right text-sm tabular-nums">
                   {r.cpc ? `$${r.cpc.toFixed(2)}` : "—"}
                 </td>
-                <td className="px-2 py-2.5 text-right text-xs tabular-nums">
+                <td className="px-2 py-3 text-right text-sm tabular-nums">
                   {r.cac ? `$${r.cac.toFixed(0)}` : "—"}
                 </td>
-                <td className="px-4 py-2.5 text-right text-xs tabular-nums">
+                <td className="px-4 py-3 text-right text-sm tabular-nums">
                   <span className={r.roas && r.roas >= 1 ? "text-emerald-400" : ""}>
                     {r.roas ? r.roas.toFixed(2) : "—"}
                   </span>
@@ -434,7 +434,7 @@ export default function CreativeClient({
   const s = data.summary;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
+    <div className="mx-auto w-full max-w-[1600px] px-4 py-8 sm:px-6">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Creative Intelligence</h1>
         <p className="mt-1.5 max-w-3xl text-sm text-muted-foreground">
@@ -625,12 +625,12 @@ export default function CreativeClient({
               <CardContent className="divide-y divide-border">
                 {data.gaps.map((g, i) => (
                   <div key={g.label} className="flex items-baseline gap-3 py-2.5">
-                    <span className="w-5 shrink-0 text-xs tabular-nums text-muted-foreground">
+                    <span className="w-6 shrink-0 text-sm tabular-nums text-muted-foreground">
                       {i + 1}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="text-sm">{g.label}</div>
-                      <div className="text-xs text-muted-foreground">{g.reason}</div>
+                      <div className="text-sm text-muted-foreground">{g.reason}</div>
                     </div>
                   </div>
                 ))}
@@ -657,11 +657,11 @@ export default function CreativeClient({
                     <div key={r.label} className="py-3">
                       <div className="flex items-baseline justify-between gap-3">
                         <span className="text-sm">{r.label}</span>
-                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
                           {r.assets} assets · {money(r.duplicateSpend)} on duplicates
                         </span>
                       </div>
-                      <div className="mt-1 truncate text-xs text-muted-foreground">
+                      <div className="mt-1 truncate text-sm text-muted-foreground">
                         {r.names.join(" · ")}
                       </div>
                     </div>
@@ -674,9 +674,9 @@ export default function CreativeClient({
           {tab === "assets" ? (
             <Card>
               <CardContent className="overflow-x-auto p-0">
-                <table className="w-full min-w-[820px] text-sm">
+                <table className="w-full min-w-[980px] text-base">
                   <thead>
-                    <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
                       <th className="px-4 py-2.5">Asset</th>
                       <th className="px-3 py-2.5">Pillar</th>
                       <th className="px-3 py-2.5">Persona</th>
@@ -693,21 +693,21 @@ export default function CreativeClient({
                         a.purchases && a.purchases > 0 ? (a.spend ?? 0) / a.purchases : null;
                       return (
                         <tr key={a.id} className="border-b border-border/60 last:border-0">
-                          <td className="max-w-[240px] px-4 py-2.5">
+                          <td className="max-w-[300px] px-4 py-3">
                             <div className="flex items-center gap-2">
                               {a.thumbUrl ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
                                   src={a.thumbUrl}
                                   alt=""
-                                  className="size-8 shrink-0 rounded object-cover"
+                                  className="size-11 shrink-0 rounded object-cover"
                                 />
                               ) : (
-                                <span className="size-8 shrink-0 rounded bg-muted" />
+                                <span className="size-11 shrink-0 rounded bg-muted" />
                               )}
                               <span className="min-w-0">
                                 <span className="block truncate">{a.name}</span>
-                                <span className="block truncate text-xs text-muted-foreground">
+                                <span className="block truncate text-sm text-muted-foreground">
                                   {a.hookText || a.critique || `${a.adCount} ads`}
                                 </span>
                               </span>
@@ -721,17 +721,17 @@ export default function CreativeClient({
                               ) : null}
                             </div>
                           </td>
-                          <td className="px-3 py-2.5 text-xs">{labelFor("pillar", a.pillar)}</td>
-                          <td className="px-3 py-2.5 text-xs">{labelFor("persona", a.persona)}</td>
-                          <td className="px-3 py-2.5 text-xs">{labelFor("hook", a.hook)}</td>
-                          <td className="px-3 py-2.5 text-xs">{a.funnel}</td>
-                          <td className="px-3 py-2.5 text-right tabular-nums text-xs">
+                          <td className="px-3 py-3 text-sm">{labelFor("pillar", a.pillar)}</td>
+                          <td className="px-3 py-3 text-sm">{labelFor("persona", a.persona)}</td>
+                          <td className="px-3 py-3 text-sm">{labelFor("hook", a.hook)}</td>
+                          <td className="px-3 py-3 text-sm">{a.funnel}</td>
+                          <td className="px-3 py-3 text-right tabular-nums text-sm">
                             {a.spend ? money(a.spend) : "—"}
                           </td>
-                          <td className="px-3 py-2.5 text-right tabular-nums text-xs">
+                          <td className="px-3 py-3 text-right tabular-nums text-sm">
                             {cpa ? `$${cpa.toFixed(0)}` : "—"}
                           </td>
-                          <td className="px-4 py-2.5 text-right tabular-nums text-xs">
+                          <td className="px-4 py-3 text-right tabular-nums text-sm">
                             {a.scores.differentiation}/5
                           </td>
                         </tr>
@@ -752,7 +752,7 @@ export default function CreativeClient({
                 {data.compliance.map((c) => (
                   <div key={c.id} className="py-2.5">
                     <div className="text-sm">{c.name}</div>
-                    <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
+                    <ul className="mt-1 list-disc pl-5 text-sm text-muted-foreground">
                       {c.flags.map((f, i) => (
                         <li key={i}>{f}</li>
                       ))}
