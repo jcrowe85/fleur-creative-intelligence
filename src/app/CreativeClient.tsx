@@ -36,7 +36,7 @@ interface CoverageRow {
 interface AxisCoverage {
   axis: string;
   rows: CoverageRow[];
-  evenness: number;
+  coverage: number;
   missing: { id: string; label: string }[];
 }
 
@@ -117,7 +117,7 @@ function AxisPanel({ title, cov }: { title: string; cov: AxisCoverage }) {
         <div className="flex items-baseline justify-between gap-3">
           <CardTitle className="text-base">{title}</CardTitle>
           <span className="text-xs text-muted-foreground">
-            evenness {cov.evenness.toFixed(2)} · {cov.missing.length} unused
+            {(cov.coverage * 100).toFixed(0)}% of the axis covered · {cov.missing.length} unused
           </span>
         </div>
       </CardHeader>
@@ -241,10 +241,10 @@ function CampaignPanel({
                   <div className="flex flex-col gap-1">
                     {(
                       [
-                        ["Pillars", r.coverage.pillar, r.evennessByAxis.pillar],
-                        ["Personas", r.coverage.persona, r.evennessByAxis.persona],
-                        ["Hooks", r.coverage.hook, r.evennessByAxis.hook],
-                        ["Formats", r.coverage.format, r.evennessByAxis.format],
+                        ["Pillars", r.coverage.pillar, r.coverageByAxis.pillar],
+                        ["Personas", r.coverage.persona, r.coverageByAxis.persona],
+                        ["Hooks", r.coverage.hook, r.coverageByAxis.hook],
+                        ["Formats", r.coverage.format, r.coverageByAxis.format],
                       ] as const
                     ).map(([label, [used, total], score]) => (
                       <div key={label} className="flex items-center gap-2">
@@ -441,16 +441,16 @@ export default function CreativeClient({
               sub={`of ${s!.territorySpaceSize.toLocaleString()} possible`}
             />
             <Stat
-              label="Pillar evenness"
-              value={s!.evennessByAxis.pillar.toFixed(2)}
-              sub="1.0 = perfectly spread"
-              tone={s!.evennessByAxis.pillar < 0.6 ? "bad" : "good"}
+              label="Pillar coverage"
+              value={`${(s!.coverageByAxis.pillar * 100).toFixed(0)}%`}
+              sub={`of ${20} pillars, weighted`}
+              tone={s!.coverageByAxis.pillar < 0.35 ? "bad" : "good"}
             />
             <Stat
-              label="Persona evenness"
-              value={s!.evennessByAxis.persona.toFixed(2)}
-              sub="1.0 = perfectly spread"
-              tone={s!.evennessByAxis.persona < 0.6 ? "bad" : "good"}
+              label="Persona coverage"
+              value={`${(s!.coverageByAxis.persona * 100).toFixed(0)}%`}
+              sub={`of ${11} personas, weighted`}
+              tone={s!.coverageByAxis.persona < 0.35 ? "bad" : "good"}
             />
             <Stat
               label="Duplicate spend"

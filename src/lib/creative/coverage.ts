@@ -53,30 +53,38 @@ export interface AxisCoverage {
     /** Flagged when the pillar is one Fleur is uniquely able to own. */
     strategicPriority?: boolean;
   }[];
-  /** 0 = one term holds everything, 1 = perfectly even. */
-  evenness: number;
+  /** Fraction of this axis genuinely in play. See effectiveCoverage. */
+  coverage: number;
   /** Terms with zero assets. */
   missing: { id: string; label: string }[];
 }
 
 /**
- * Normalised Shannon evenness. 1.0 means assets are spread perfectly evenly
- * across the terms that exist; 0 means everything sits on one term. Preferred
- * over a raw count of occupied terms because it accounts for lopsidedness —
- * 19 ads on one pillar and 1 each on five others is not real coverage.
+ * Effective coverage of an axis: `exp(H) / axisSize`, where H is Shannon
+ * entropy over the observed counts.
+ *
+ * `exp(H)` is the effective number of terms in use — 8 terms at equal weight
+ * gives 8, the same 8 with one dominating gives less. Over the axis size it
+ * reads directly as "the fraction of this axis actually covered": 8 of 20
+ * pillars used evenly is 0.40, and lopsidedness pulls it below.
+ *
+ * THIS IS THE ONLY DIVERSITY MEASURE IN THE APP. An earlier version used
+ * normalised Shannon evenness, which measures balance *among the terms already
+ * in use* and is blind to what is missing — it scored a campaign touching 8 of
+ * 20 pillars at 0.62-0.67. Worse, only the campaign view was migrated, so the
+ * portfolio cards and the campaign table reported different numbers for the
+ * same idea. Both now call this.
  */
-export function evenness(counts: number[]): number {
-  const total = counts.reduce((a, b) => a + b, 0);
-  if (total === 0) return 0;
-  const k = counts.length;
-  if (k <= 1) return 0;
+export function effectiveCoverage(counts: number[], axisSize: number): number {
+  const observed = counts.filter((c) => c > 0);
+  const total = observed.reduce((a, b) => a + b, 0);
+  if (total === 0 || axisSize === 0) return 0;
   let h = 0;
-  for (const c of counts) {
-    if (c <= 0) continue;
+  for (const c of observed) {
     const p = c / total;
     h -= p * Math.log(p);
   }
-  return h / Math.log(k);
+  return Math.min(1, Math.exp(h) / axisSize);
 }
 
 /** Herfindahl index on spend — how concentrated the money is. Above ~0.25 is
@@ -126,7 +134,7 @@ export function axisCoverage(
   return {
     axis,
     rows: rows.sort((a, b) => b.assets - a.assets),
-    evenness: evenness(rows.map((r) => r.assets)),
+    coverage: effectiveCoverage(rows.map((r) => r.assets), terms.length),
     missing: rows.filter((r) => r.assets === 0).map(({ id, label }) => ({ id, label })),
   };
 }
@@ -287,7 +295,7 @@ export interface PortfolioSummary {
   territorySpaceSize: number;
   occupancyRate: number;
   spendHerfindahl: number;
-  evennessByAxis: Record<string, number>;
+  coverageByAxis: Record<string, number>;
   duplicateSpend: number;
   totalSpend: number;
   complianceFlagged: number;
@@ -305,11 +313,11 @@ export function summarize(
     territorySpaceSize: TERRITORY_SPACE_SIZE,
     occupancyRate: t.length / TERRITORY_SPACE_SIZE,
     spendHerfindahl: herfindahl(assets.map((a) => a.spend ?? 0)),
-    evennessByAxis: {
-      pillar: axisCoverage(assets, "pillar").evenness,
-      persona: axisCoverage(assets, "persona").evenness,
-      hook: axisCoverage(assets, "hook").evenness,
-      funnel: axisCoverage(assets, "funnel").evenness,
+    coverageByAxis: {
+      pillar: axisCoverage(assets, "pillar").coverage,
+      persona: axisCoverage(assets, "persona").coverage,
+      hook: axisCoverage(assets, "hook").coverage,
+      funnel: axisCoverage(assets, "funnel").coverage,
     },
     duplicateSpend: redundancy(assets).reduce((s, r) => s + r.duplicateSpend, 0),
     totalSpend,
