@@ -111,11 +111,11 @@ async function syncLevel(level: "campaign" | "adset" | "ad", since: string, unti
     fields: `${INSIGHT_FIELDS},${LEVEL_ID[level]}`,
   });
 
-  let n = 0;
-  for (const r of rows) {
+  const data = rows.flatMap((r) => {
     const entityId = r[LEVEL_ID[level]] as string | undefined;
-    if (!entityId) continue;
-    const data = {
+    if (!entityId) return [];
+    return [{
+      id: `${r.date_start}_${level}_${entityId}`,
       date: new Date(r.date_start),
       level,
       entityId,
@@ -137,15 +137,20 @@ async function syncLevel(level: "campaign" | "adset" | "ad", since: string, unti
       videoP75: action(r.video_p75_watched_actions, "video_view"),
       videoP100: action(r.video_p100_watched_actions, "video_view"),
       syncedAt: new Date(),
-    };
-    await db.metaInsightDaily.upsert({
-      where: { date_level_entityId: { date: data.date, level, entityId } },
-      update: data,
-      create: { id: `${r.date_start}_${level}_${entityId}`, ...data },
-    });
-    n++;
-  }
-  return n;
+    }];
+  });
+
+  // Replace the window rather than upserting row by row. Numbers for a day
+  // keep moving as attribution lands, so every row in range would be written
+  // anyway — and ~1,300 sequential upserts per level is what pushed this past
+  // the 300s function limit, leaving every run stuck at status "running".
+  await db.$transaction([
+    db.metaInsightDaily.deleteMany({
+      where: { level, date: { gte: new Date(since), lte: new Date(until) } },
+    }),
+    db.metaInsightDaily.createMany({ data, skipDuplicates: true }),
+  ]);
+  return data.length;
 }
 
 interface EntityRow {
@@ -167,25 +172,47 @@ async function syncEntities() {
     { level: "ad", path: "ads", fields: "id,name,status,effective_status,campaign_id,adset_id" },
   ] as const;
 
+  const existing = new Map(
+    (await db.metaEntity.findMany({ select: { id: true, name: true, effectiveStatus: true, dailyBudget: true } }))
+      .map((e) => [e.id, e]),
+  );
+
   let n = 0;
   for (const s of specs) {
     const rows = await graphAll<EntityRow>(`${account()}/${s.path}`, { fields: s.fields });
-    for (const r of rows) {
-      const data = {
-        level: s.level,
-        name: r.name ?? "(unnamed)",
-        campaignId: r.campaign_id ?? (s.level === "campaign" ? r.id : null),
-        adsetId: r.adset_id ?? (s.level === "adset" ? r.id : null),
-        status: r.status ?? null,
-        effectiveStatus: r.effective_status ?? null,
-        objective: r.objective ?? null,
-        dailyBudget: r.daily_budget ? Number(r.daily_budget) / 100 : null,
-        lifetimeBudget: r.lifetime_budget ? Number(r.lifetime_budget) / 100 : null,
-        syncedAt: new Date(),
-      };
-      await db.metaEntity.upsert({ where: { id: r.id }, update: data, create: { id: r.id, ...data } });
-      n++;
+    const shaped = rows.map((r) => ({
+      id: r.id,
+      level: s.level,
+      name: r.name ?? "(unnamed)",
+      campaignId: r.campaign_id ?? (s.level === "campaign" ? r.id : null),
+      adsetId: r.adset_id ?? (s.level === "adset" ? r.id : null),
+      status: r.status ?? null,
+      effectiveStatus: r.effective_status ?? null,
+      objective: r.objective ?? null,
+      dailyBudget: r.daily_budget ? Number(r.daily_budget) / 100 : null,
+      lifetimeBudget: r.lifetime_budget ? Number(r.lifetime_budget) / 100 : null,
+      syncedAt: new Date(),
+    }));
+
+    const fresh = shaped.filter((x) => !existing.has(x.id));
+    if (fresh.length > 0) {
+      await db.metaEntity.createMany({ data: fresh, skipDuplicates: true });
     }
+    // Names, statuses and budgets do change, but only for a handful of rows on
+    // any given hour — writing all ~3,000 every time is what made this too slow.
+    for (const x of shaped) {
+      const prev = existing.get(x.id);
+      if (!prev) continue;
+      if (
+        prev.name === x.name &&
+        prev.effectiveStatus === x.effectiveStatus &&
+        Number(prev.dailyBudget ?? 0) === Number(x.dailyBudget ?? 0)
+      ) {
+        continue;
+      }
+      await db.metaEntity.update({ where: { id: x.id }, data: x });
+    }
+    n += shaped.length;
   }
   return n;
 }
@@ -196,6 +223,18 @@ export interface MetaSyncResult {
 }
 
 export async function syncMeta(daysBack = 7): Promise<MetaSyncResult> {
+  // A run killed by the function timeout never reaches the catch, so its log
+  // row stays "running" forever. Close out anything older than the timeout
+  // before starting, or the table fills with phantom live syncs.
+  await db.syncLog.updateMany({
+    where: {
+      source: "meta",
+      status: "running",
+      startedAt: { lt: new Date(Date.now() - 6 * 60_000) },
+    },
+    data: { status: "error", finishedAt: new Date(), errorMessage: "timed out" },
+  });
+
   const log = await db.syncLog.create({ data: { source: "meta", status: "running" } });
   try {
     const until = new Date();
