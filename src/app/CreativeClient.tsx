@@ -311,7 +311,6 @@ function CampaignPanel({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type Phase = "idle" | "discovering" | "analyzing" | "error";
 
 export default function CreativeClient({
   initial,
@@ -324,8 +323,6 @@ export default function CreativeClient({
 }) {
   const [data, setData] = useState<Portfolio>(initial);
   const [, startTransition] = useTransition();
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [message, setMessage] = useState<string>("");
   const [tab, setTab] = useState<"campaigns" | "coverage" | "gaps" | "redundancy" | "assets">("campaigns");
   const [run, setRun] = useState<RunState | null>(initialRun);
   const [camps, setCamps] = useState<CampaignCreative[]>(initialCampaigns);
@@ -335,11 +332,8 @@ export default function CreativeClient({
   // First paint is server-rendered; this only refreshes after a mutation.
   const load = useCallback(async () => {
     const r = await fetch("/api/creative/portfolio");
-    if (!r.ok) {
-      setMessage((await r.json().catch(() => ({}))).error ?? "Could not load portfolio");
-      setPhase("error");
-      return;
-    }
+    // Nothing surfaces an error here any more; the next poll simply retries.
+    if (!r.ok) return;
     const next = (await r.json()) as Portfolio;
     startTransition(() => setData(next));
   }, []);
@@ -347,7 +341,9 @@ export default function CreativeClient({
   // Poll while a run is live. Subscribing to server state is what effects are
   // for; the setState here happens in the interval callback, not the body.
   useEffect(() => {
-    if (run?.status !== "running") return;
+    // Poll slowly when idle and quickly while working. The idle poll is what
+    // makes a cron-started run appear without anyone pressing anything.
+    const period = run?.status === "running" ? 5000 : 60000;
     const id = setInterval(async () => {
       try {
         const r = await fetch("/api/creative/analyze");
@@ -362,7 +358,7 @@ export default function CreativeClient({
       } catch {
         /* transient — the next tick retries */
       }
-    }, 5000);
+    }, period);
     return () => clearInterval(id);
   }, [run?.status, load]);
 
@@ -372,56 +368,6 @@ export default function CreativeClient({
     if (r.ok) setCamps(((await r.json()) as { campaigns: CampaignCreative[] }).campaigns);
   }, []);
 
-  async function discover() {
-    setPhase("discovering");
-    setMessage("Reading the ad account…");
-    try {
-      const r = await fetch("/api/creative/discover", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? "Discovery failed");
-      setMessage(
-        `${j.discovered} distinct assets (${j.created} new). ${j.unanalyzed} awaiting analysis.`,
-      );
-      setPhase("idle");
-      await load();
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Discovery failed");
-      setPhase("error");
-    }
-  }
-
-  // The run lives on the server. This only starts it, stops it, and polls —
-  // so a refresh, a closed tab or a sleeping laptop no longer kills the job.
-  async function startRun(force = false) {
-    setMessage("");
-    const r = await fetch("/api/creative/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "start", force }),
-    });
-    const j = await r.json();
-    if (!r.ok) {
-      setMessage(j.error ?? "Could not start the run");
-      if (r.status === 409) setRun(j as RunState);
-      return;
-    }
-    setRun(j as RunState);
-  }
-
-  async function stopRun() {
-    const r = await fetch("/api/creative/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "stop" }),
-    });
-    if (r.ok) setRun((await r.json()) as RunState);
-  }
-
-  const busy = phase === "discovering";
   const running = run?.status === "running";
   const pending = run?.pending ?? data.counts.pending;
   // 41s/asset measured across the first 233; good enough to set expectations.
@@ -438,68 +384,24 @@ export default function CreativeClient({
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Creative Intelligence</h1>
         <p className="mt-1.5 max-w-3xl text-sm text-muted-foreground">
-          Classifies every video and image in the ad account by pillar, persona, hook and funnel
-          stage, then shows which creative territories are occupied and which are empty. Andromeda
-          picks candidates out of a hierarchical index — near-duplicate ads land in the same region
-          and compete with each other, so coverage is what buys reach, not volume.
+          Every video and image in the ad account, classified by pillar, persona, hook and funnel
+          stage, so you can see which creative territories are occupied and which are empty. New
+          creative is discovered and analysed automatically. Andromeda picks candidates out of a
+          hierarchical index — near-duplicate ads land in the same region and compete with each
+          other, so coverage is what buys reach, not volume.
         </p>
       </header>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <button
-          onClick={discover}
-          disabled={busy || running}
-          className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
-        >
-          {phase === "discovering" ? "Reading account…" : "Pull assets from Meta"}
-        </button>
-
-        {running ? (
-          <button
-            onClick={stopRun}
-            className="rounded-lg border border-red-500/50 px-4 py-2 text-sm font-medium text-red-400"
-          >
-            Stop analysis
-          </button>
-        ) : (
-          <button
-            onClick={() => startRun()}
-            disabled={busy || pending === 0}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium disabled:opacity-50"
-          >
-            {pending === 0 ? "Nothing left to analyse" : `Analyse ${pending} remaining`}
-          </button>
-        )}
-
-        {run?.stale ? (
-          <button
-            onClick={() => startRun(true)}
-            className="rounded-lg border border-amber-500/50 px-4 py-2 text-sm font-medium text-amber-400"
-          >
-            Restart stalled run
-          </button>
-        ) : null}
-
-        {message ? (
-          <span className={"text-sm " + (phase === "error" ? "text-red-400" : "text-muted-foreground")}>
-            {message}
-          </span>
-        ) : null}
-      </div>
-
-      {/* Progress lives here rather than in a button label: the run is on the
-          server, so this is the only honest read of what is happening. */}
-      {run && (running || run.status === "done" || run.processed > 0) ? (
+      {/* Shown only while work is actually happening. Discovery and analysis
+          are driven by cron now, so this appears on its own when new creative
+          lands and disappears when the queue drains. */}
+      {run && running ? (
         <div className="mb-6 rounded-lg border border-border bg-card p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <span className="text-sm font-medium">
-              {running
-                ? run.stale
-                  ? "Run stalled — no progress for 10 minutes"
-                  : "Analysing on the server"
-                : run.status === "done"
-                  ? "Analysis complete"
-                  : "Analysis stopped"}
+              {run.stale
+                ? "Analysis stalled — no progress for 10 minutes"
+                : "Analysing new creative"}
             </span>
             <span className="text-xs tabular-nums text-muted-foreground">
               {run.analyzed.toLocaleString()} of {run.total.toLocaleString()} assets
@@ -518,11 +420,7 @@ export default function CreativeClient({
             />
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            {running
-              ? "Safe to close this tab — the run continues on the server."
-              : run.lastError
-                ? `Last error: ${run.lastError}`
-                : "\u00a0"}
+            Runs on the server — nothing to keep open.
           </p>
         </div>
       ) : null}
@@ -530,7 +428,7 @@ export default function CreativeClient({
       {data.counts.analyzed === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            Nothing analysed yet. Pull assets from Meta, then run the analyser.
+            Nothing analysed yet. New creative is picked up automatically each morning.
           </CardContent>
         </Card>
       ) : (

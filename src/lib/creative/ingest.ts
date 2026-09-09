@@ -6,6 +6,8 @@
 // waste model calls and badly distort the coverage picture, since one video
 // appearing 12 times would read as 12 occupied territories.
 
+import { db } from "@/lib/db";
+
 const GRAPH = "https://graph.facebook.com/v23.0";
 
 function accountId(): string {
@@ -213,4 +215,83 @@ export async function downloadAsset(url: string, maxBytes = 200 * 1024 * 1024): 
   const buf = Buffer.from(await r.arrayBuffer());
   if (buf.byteLength > maxBytes) throw new Error("Asset exceeded size limit");
   return buf;
+}
+
+export interface SyncResult {
+  discovered: number;
+  created: number;
+  updated: number;
+  unanalyzed: number;
+}
+
+/**
+ * Walks the ad account and upserts one row per distinct creative asset.
+ *
+ * Shared by the "Pull assets from Meta" button and the daily cron so the two
+ * cannot drift — the cron finding different assets to the button would be a
+ * miserable bug to chase.
+ *
+ * Safe to re-run. An existing asset has its ad list and `lastSeen` refreshed
+ * and missing copy backfilled, but its analysis is never touched: re-running
+ * discovery must not cost a reclassification.
+ */
+export async function syncAssets(opts: { activeOnly?: boolean } = {}): Promise<SyncResult> {
+  const found = await discoverAssets({ activeOnly: Boolean(opts.activeOnly) });
+
+  // Read the whole index once. The obvious shape — findUnique then update per
+  // asset — is 1,362 sequential round trips over the pooler and blew the 300s
+  // function limit on its own.
+  const existing = await db.creativeAsset.findMany({
+    select: { assetKey: true, adIds: true, headline: true, primaryText: true, destinationUrl: true, thumbUrl: true },
+  });
+  const byKey = new Map(existing.map((e) => [e.assetKey, e]));
+
+  const fresh = found.filter((a) => !byKey.has(a.assetKey));
+  if (fresh.length > 0) {
+    await db.creativeAsset.createMany({
+      data: fresh.map((a) => ({
+        assetKey: a.assetKey,
+        assetType: a.assetType,
+        name: a.name,
+        adIds: a.adIds,
+        thumbUrl: a.thumbUrl,
+        headline: a.headline,
+        primaryText: a.primaryText,
+        destinationUrl: a.destinationUrl,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  // Only touch rows that actually changed. Day to day almost nothing does, so
+  // this collapses to a handful of writes instead of a full rewrite.
+  const sameIds = (a: string[], b: string[]) =>
+    a.length === b.length && a.every((x, i) => x === b[i]);
+
+  let updated = 0;
+  for (const a of found) {
+    const prev = byKey.get(a.assetKey);
+    if (!prev) continue;
+    const backfill =
+      (!prev.headline && a.headline) ||
+      (!prev.primaryText && a.primaryText) ||
+      (!prev.destinationUrl && a.destinationUrl) ||
+      (!prev.thumbUrl && a.thumbUrl);
+    if (sameIds(prev.adIds, a.adIds) && !backfill) continue;
+    await db.creativeAsset.update({
+      where: { assetKey: a.assetKey },
+      data: {
+        adIds: a.adIds,
+        lastSeen: new Date(),
+        headline: prev.headline ?? a.headline ?? undefined,
+        primaryText: prev.primaryText ?? a.primaryText ?? undefined,
+        destinationUrl: prev.destinationUrl ?? a.destinationUrl ?? undefined,
+        thumbUrl: prev.thumbUrl ?? a.thumbUrl ?? undefined,
+      },
+    });
+    updated++;
+  }
+
+  const unanalyzed = await db.creativeAsset.count({ where: { analysis: null } });
+  return { discovered: found.length, created: fresh.length, updated, unanalyzed };
 }

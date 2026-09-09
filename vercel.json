@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/creative-discover",
+      "schedule": "0 14 * * *"
+    },
+    {
       "path": "/api/cron/meta-sync?days=7",
       "schedule": "20 * * * *"
     },
