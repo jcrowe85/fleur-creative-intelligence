@@ -191,6 +191,44 @@ export async function transcribeVideo(videoBuf: Buffer): Promise<string> {
   }
 }
 
+/**
+ * Media type from magic bytes rather than from the file extension or the URL.
+ *
+ * ffmpeg-extracted frames are always JPEG, but assets downloaded straight from
+ * Meta are whatever Meta stored — frequently PNG. Declaring the wrong type is a
+ * hard 400 from the API ("appears to be a image/png image"), not a warning, so
+ * this has to be read off the bytes.
+ */
+function sniffMediaType(buf: Buffer): "image/jpeg" | "image/png" | "image/gif" | "image/webp" | null {
+  if (buf.length < 12) return null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+  if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  if (buf.subarray(0, 3).toString("ascii") === "GIF") return "image/gif";
+  if (buf.subarray(0, 4).toString("ascii") === "RIFF" && buf.subarray(8, 12).toString("ascii") === "WEBP") {
+    return "image/webp";
+  }
+  return null;
+}
+
+/** Last resort for a format the API will not take (AVIF, BMP, a TIFF export):
+ *  transcode to JPEG rather than fail the asset. */
+async function toJpeg(buf: Buffer): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), "creative-conv-"));
+  const inPath = join(dir, "in");
+  const outPath = join(dir, "out.jpg");
+  try {
+    await writeFile(inPath, buf);
+    await execFileAsync(ffmpegPath, [
+      "-y", "-i", inPath,
+      "-vf", `scale='min(${FRAME_LONG_EDGE},iw)':-2`,
+      "-q:v", "4", outPath,
+    ]);
+    return await readFile(outPath);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 // ── Prompt ────────────────────────────────────────────────────────────────────
 
 const renderAxis = (name: string, terms: readonly TaxonomyTerm[]) =>
@@ -298,6 +336,15 @@ export async function analyzeCreative(input: AnalysisInput): Promise<CreativeAna
 
   if (frames.length === 0) throw new Error("No frames could be extracted from the asset");
 
+  // Tag each image with its real type, converting anything the API will not
+  // accept. Done here rather than at download so the video path benefits too:
+  // a thumbnail fallback is just as likely to be a PNG.
+  const tagged: { buf: Buffer; mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp" }[] = [];
+  for (const b of frames) {
+    const t = sniffMediaType(b);
+    tagged.push(t ? { buf: b, mediaType: t } : { buf: await toJpeg(b), mediaType: "image/jpeg" });
+  }
+
   const client = new Anthropic();
   const content: Anthropic.MessageParam["content"] = [
     {
@@ -310,14 +357,14 @@ export async function analyzeCreative(input: AnalysisInput): Promise<CreativeAna
         `Primary text: ${input.primaryText || "(none)"}\n` +
         `Destination: ${input.destinationUrl || "(none)"}\n` +
         `Transcript: ${transcript || "(silent or no speech detected)"}\n\n` +
-        `${frames.length} frames follow in chronological order; the first two are from the opening ~1.2 seconds.\n\n` +
+        `${tagged.length} frames follow in chronological order; the first two are from the opening ~1.2 seconds.\n\n` +
         `Return JSON in exactly this shape:\n${SCHEMA_HINT}`,
     },
-    ...frames.map(
-      (b) =>
+    ...tagged.map(
+      (f) =>
         ({
           type: "image",
-          source: { type: "base64", media_type: "image/jpeg", data: b.toString("base64") },
+          source: { type: "base64", media_type: f.mediaType, data: f.buf.toString("base64") },
         }) as const,
     ),
   ];
