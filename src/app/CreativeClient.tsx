@@ -166,10 +166,10 @@ function CampaignPanel({
           <div>
             <CardTitle className="text-base">Diversity by campaign</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              Shannon evenness on each axis, measured against the <em>whole</em> taxonomy — 20
-              pillars, 11 personas, 20 hooks, 13 formats — so unused terms pull the score down
-              as hard as lopsided ones. The fractions show exactly what each grade is made of.
-              An A needs many terms used, fairly evenly, on all four axes.
+              The score is <strong>how much of the taxonomy is actually in play</strong>,
+              averaged over four axes. Using 8 of 20 pillars evenly scores 40% on that axis;
+              leaning on two of them scores less. It is not a measure of balance among the
+              pillars you already use — that flattered campaigns missing most of the list.
             </p>
           </div>
           <button
@@ -186,7 +186,7 @@ function CampaignPanel({
             <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
               <th className="px-4 py-2.5">Campaign</th>
               <th className="px-2 py-2.5">Diversity</th>
-              <th className="px-2 py-2.5">Axis coverage</th>
+              <th className="px-2 py-2.5">Coverage of each axis</th>
               <th className="px-2 py-2.5">Most concentrated</th>
               <th className="px-2 py-2.5 text-right">Spend</th>
               <th className="px-2 py-2.5 text-right">CPM</th>
@@ -228,39 +228,46 @@ function CampaignPanel({
                       {r.grade}
                     </span>
                     {r.grade.length === 1 ? (
-                      <span className="text-xs tabular-nums text-muted-foreground">
-                        {r.diversity}
+                      <span
+                        className="text-xs tabular-nums text-muted-foreground"
+                        title="Share of the taxonomy in play, averaged over the four axes"
+                      >
+                        {r.diversity}%
                       </span>
                     ) : null}
                   </div>
                 </td>
                 <td className="px-2 py-2.5">
-                  <div className="flex gap-2.5 text-[11px] tabular-nums">
+                  <div className="flex flex-col gap-1">
                     {(
                       [
-                        ["pillar", r.coverage.pillar],
-                        ["persona", r.coverage.persona],
-                        ["hook", r.coverage.hook],
-                        ["format", r.coverage.format],
+                        ["Pillars", r.coverage.pillar, r.evennessByAxis.pillar],
+                        ["Personas", r.coverage.persona, r.evennessByAxis.persona],
+                        ["Hooks", r.coverage.hook, r.evennessByAxis.hook],
+                        ["Formats", r.coverage.format, r.evennessByAxis.format],
                       ] as const
-                    ).map(([label, [used, total]]) => {
-                      const frac = total ? used / total : 0;
-                      return (
-                        <span
-                          key={label}
-                          title={`${used} of ${total} ${label}s used`}
-                          className={
-                            frac < 0.25
-                              ? "text-red-400"
-                              : frac < 0.5
-                                ? "text-amber-400"
-                                : "text-muted-foreground"
-                          }
-                        >
-                          {label.slice(0, 2)} {used}/{total}
+                    ).map(([label, [used, total], score]) => (
+                      <div key={label} className="flex items-center gap-2">
+                        <span className="w-14 shrink-0 text-[10px] text-muted-foreground">
+                          {label}
                         </span>
-                      );
-                    })}
+                        <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
+                          <span
+                            className={
+                              "block h-full rounded-full " +
+                              (score < 0.2 ? "bg-red-400" : score < 0.35 ? "bg-amber-400" : "bg-emerald-400")
+                            }
+                            style={{ width: `${Math.max(score * 100, 2)}%` }}
+                          />
+                        </span>
+                        <span
+                          className="w-12 shrink-0 text-[10px] tabular-nums text-muted-foreground"
+                          title={`${used} of ${total} used, weighted for how evenly`}
+                        >
+                          {used}/{total}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </td>
                 <td className="max-w-[190px] px-2 py-2.5 text-xs">

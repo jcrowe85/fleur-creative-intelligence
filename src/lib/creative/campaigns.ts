@@ -10,7 +10,6 @@
 // budget it has.
 
 import { db } from "@/lib/db";
-import { evenness } from "./coverage";
 import {
   FORMATS, HOOK_TYPES, PERSONAS, PILLARS, labelFor,
 } from "./taxonomy";
@@ -27,14 +26,29 @@ const AXIS_SIZE = {
 } as const;
 
 /**
- * Shannon evenness over the whole axis: observed counts padded with a zero for
- * every unused term. Missing terms drag the score down, which is the entire
- * point — coverage and balance are one number, not two.
+ * Effective coverage of an axis: `exp(H) / axisSize`, where H is Shannon
+ * entropy over the observed counts.
+ *
+ * `exp(H)` is the *effective number of terms* in use — 8 terms at equal weight
+ * gives 8, the same 8 with one dominating gives less. Divided by the axis size
+ * it reads directly as "the fraction of this axis the campaign actually
+ * covers": 8 of 20 pillars used evenly is 40%, and lopsidedness pulls it below.
+ *
+ * This replaced normalised Shannon evenness, which measured balance *among the
+ * terms already in use* and so scored a campaign touching 8 of 20 pillars at
+ * 62-67%. That reads as broad coverage when the campaign is missing twelve
+ * pillars, and it was the single reason grades looked inflated.
  */
-function axisEvenness(counts: Map<string, number>, axisSize: number): number {
-  const observed = [...counts.values()];
-  const padded = [...observed, ...Array(Math.max(0, axisSize - observed.length)).fill(0)];
-  return evenness(padded);
+function axisCoverageScore(counts: Map<string, number>, axisSize: number): number {
+  const observed = [...counts.values()].filter((n) => n > 0);
+  const total = observed.reduce((a, b) => a + b, 0);
+  if (total === 0 || axisSize === 0) return 0;
+  let h = 0;
+  for (const n of observed) {
+    const p = n / total;
+    h -= p * Math.log(p);
+  }
+  return Math.min(1, Math.exp(h) / axisSize);
 }
 
 export interface CampaignCreative {
@@ -92,24 +106,23 @@ const MIN_ASSETS_TO_GRADE = 4;
 function grade(score: number, assets: number, unclassified: number): string {
   if (assets === 0) return unclassified > 0 ? "pending" : "n/a";
   if (assets < MIN_ASSETS_TO_GRADE) return "n/a";
-  // Calibrated against a full-taxonomy denominator, so an A is genuinely hard:
-  // it needs many terms used, fairly evenly, on all four axes.
-  if (score >= 70) return "A";
-  if (score >= 55) return "B";
-  if (score >= 40) return "C";
-  if (score >= 25) return "D";
+  // The score now reads as a genuine fraction of the taxonomy in play, so the
+  // bands sit where they should: covering half the taxonomy evenly on all four
+  // axes is excellent, and a fifth of it is not diversity.
+  if (score >= 50) return "A";
+  if (score >= 38) return "B";
+  if (score >= 28) return "C";
+  if (score >= 18) return "D";
   return "F";
 }
 
 /**
- * Mean evenness across the four axes, each measured against the full taxonomy.
+ * Mean effective coverage across the four axes.
  *
- * There is deliberately no separate "breadth" term. An earlier version added
- * one and it inflated everything: a campaign whose 21 assets each occupied a
- * distinct pillar/persona/hook/funnel combination scored near the top while
- * using two of thirteen formats. Distinct-from-each-other is not the same as
- * covering the space, and a full-taxonomy denominator already encodes both —
- * unused terms pull the score down exactly as much as lopsided ones do.
+ * Reads as "what fraction of the taxonomy is genuinely in play here". No
+ * separate breadth term: an earlier version had one and it inflated everything,
+ * because a campaign whose assets are each distinct from one another is not the
+ * same as one covering the space.
  */
 function diversityScore(
   ev: { pillar: number; persona: number; hook: number; format: number },
@@ -214,10 +227,10 @@ export async function campaignCreatives(opts: { since?: string } = {}): Promise<
     const classified = (b?.assetIds.size ?? 0) - (b?.unclassified.size ?? 0);
     const empty = new Map<string, number>();
     const ev = {
-      pillar: axisEvenness(b?.pillar ?? empty, AXIS_SIZE.pillar),
-      persona: axisEvenness(b?.persona ?? empty, AXIS_SIZE.persona),
-      hook: axisEvenness(b?.hook ?? empty, AXIS_SIZE.hook),
-      format: axisEvenness(b?.format ?? empty, AXIS_SIZE.format),
+      pillar: axisCoverageScore(b?.pillar ?? empty, AXIS_SIZE.pillar),
+      persona: axisCoverageScore(b?.persona ?? empty, AXIS_SIZE.persona),
+      hook: axisCoverageScore(b?.hook ?? empty, AXIS_SIZE.hook),
+      format: axisCoverageScore(b?.format ?? empty, AXIS_SIZE.format),
     };
     const territories = b?.territories.size ?? 0;
     const score = diversityScore(ev, classified);

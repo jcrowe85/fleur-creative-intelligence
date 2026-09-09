@@ -1,18 +1,23 @@
 import { NextResponse } from "next/server";
 import { isCronAuthorized } from "@/lib/auth";
-import { isWorkingLocally, runDetached } from "@/lib/creative/worker";
+import { processSlice } from "@/lib/creative/worker";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * Starts (or revives) the analysis chain. Not user-facing — authorised by
- * CRON_SECRET so the control endpoint and the cron sweep can call it.
+ * Processes one slice of the analysis queue. Not user-facing — authorised by
+ * CRON_SECRET so the cron can call it.
  *
- * Returns immediately. The work runs detached from this request, because Next
- * kills a handler the moment its client disconnects and the whole point here is
- * to survive that.
+ * The work is **awaited inside the request** on purpose. An earlier version
+ * detached it and returned 202 immediately, which works on a long-lived Node
+ * server and silently does nothing on Vercel: the instance is frozen the moment
+ * the response is sent, so the detached promise never runs. The symptom was a
+ * run that reported "running" while nothing progressed.
+ *
+ * The caller here is the cron, which does not hang up early, so awaiting is
+ * safe. Each invocation stays inside maxDuration and the cron drives the next.
  */
 export async function POST(req: Request) {
   if (!isCronAuthorized(req)) {
@@ -21,9 +26,6 @@ export async function POST(req: Request) {
   const { token } = (await req.json().catch(() => ({}))) as { token?: string };
   if (!token) return NextResponse.json({ error: "token required" }, { status: 400 });
 
-  if (isWorkingLocally()) {
-    return NextResponse.json({ accepted: false, reason: "already working in this process" });
-  }
-  runDetached(token, new URL(req.url).origin);
-  return NextResponse.json({ accepted: true }, { status: 202 });
+  const result = await processSlice(token);
+  return NextResponse.json(result);
 }

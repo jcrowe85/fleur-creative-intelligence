@@ -4,11 +4,10 @@
 // page, closing it, or sleeping the laptop no longer kills the job. The client
 // only starts, stops and polls.
 //
-// Serverless functions cannot run for hours, so one invocation processes assets
-// until it approaches its time budget, then hands off by calling the same
-// endpoint again without awaiting it. Each link in the chain is a fresh
-// invocation well inside the limit, and the chain continues until the queue
-// drains or someone stops it. A cron sweep restarts the chain if a link dies.
+// Serverless cannot hold a background loop: the instance is frozen as soon as it
+// responds, so anything not awaited inside a request simply never runs. The
+// cron is therefore the engine — each tick works one slice inside its own
+// invocation, guarded by a heartbeat lock so slices cannot overlap.
 
 import { db } from "@/lib/db";
 import { analyzeCreative } from "./analyze";
@@ -220,53 +219,4 @@ function pendingCount() {
   return db.creativeAsset.count({
     where: { analysis: null, attempts: { lt: MAX_ATTEMPTS } },
   });
-}
-
-/**
- * Kicks a slice off **detached** from any HTTP request.
- *
- * This matters more than it looks. Next aborts a route handler as soon as the
- * client disconnects, so work awaited inside the handler dies the moment the
- * caller hangs up — which is exactly what happens when a browser tab is closed
- * or a chain link times out. Holding the promise at module scope instead keeps
- * it alive independently of the request that started it, and the route can
- * answer immediately.
- *
- * The reference is retained so the promise is not garbage collected, and the
- * cron sweep revives the chain if the process is recycled mid-slice.
- */
-const inFlight = new Set<Promise<unknown>>();
-
-export function runDetached(token: string, origin: string): void {
-  const p: Promise<unknown> = (async () => {
-    try {
-      const result = await processSlice(token);
-      if (!result.finished) {
-        // Continue the chain in this same process rather than over HTTP: one
-        // less thing that can be severed. The cron sweep still covers a crash.
-        runDetached(token, origin);
-      }
-    } catch (e) {
-      await db.creativeRun
-        .update({
-          where: { id: RUN_ID },
-          data: {
-            status: "error",
-            lastError: e instanceof Error ? e.message.slice(0, 500) : "Worker crashed",
-            finishedAt: new Date(),
-          },
-        })
-        .catch(() => {});
-    }
-  })();
-  inFlight.add(p);
-  // Cleared here rather than in a `finally` so the binding is definitely
-  // assigned before anything references it.
-  void p.finally(() => inFlight.delete(p));
-}
-
-/** True when this process is already working the run — used to avoid two
- *  chains after a cron sweep lands on a healthy instance. */
-export function isWorkingLocally(): boolean {
-  return inFlight.size > 0;
 }

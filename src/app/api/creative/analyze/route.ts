@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { apiRequireUser } from "@/lib/dal";
-import { getRunState, runDetached, startRun, stopRun } from "@/lib/creative/worker";
+import { getRunState, processSlice, startRun, stopRun } from "@/lib/creative/worker";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 /** Progress. Safe to poll; the client uses this instead of driving the loop. */
 export async function GET() {
@@ -46,6 +47,9 @@ export async function POST(req: Request) {
     );
   }
 
-  runDetached(token, new URL(req.url).origin);
+  // Work one slice inline so the user sees movement straight away; the cron
+  // picks it up from there. Not awaited to completion of the whole queue —
+  // processSlice returns at its own time budget.
+  await processSlice(token);
   return NextResponse.json(await getRunState());
 }
