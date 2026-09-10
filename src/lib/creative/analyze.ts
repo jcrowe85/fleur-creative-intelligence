@@ -50,6 +50,10 @@ export interface AnalysisInput {
   primaryText?: string;
   /** Where the ad sends people; a VSL lander implies a different job to a PDP. */
   destinationUrl?: string;
+  /** A transcript we already hold (TrendTrack ships one per ad). When non-empty
+   *  it is used verbatim and Whisper is skipped; empty/absent falls back to
+   *  transcribing the video ourselves. */
+  transcript?: string;
 }
 
 export interface AxisPick<T extends string = string> {
@@ -321,10 +325,12 @@ export async function analyzeCreative(input: AnalysisInput): Promise<CreativeAna
   let transcript = "";
 
   if (input.videoBuffer) {
-    // Frames and transcript are independent; run them together.
+    // Frames and transcript are independent; run them together. A transcript we
+    // were handed (e.g. from TrendTrack) skips the Whisper call entirely.
+    const provided = input.transcript?.trim();
     const [f, t] = await Promise.all([
       extractFrames(input.videoBuffer),
-      transcribeVideo(input.videoBuffer),
+      provided ? Promise.resolve(provided) : transcribeVideo(input.videoBuffer),
     ]);
     frames = f;
     transcript = t;

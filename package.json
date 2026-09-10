@@ -16,7 +16,10 @@
     "db:migrate:new": "infisical run --env=dev -- prisma migrate dev --create-only",
     "db:status": "infisical run --env=dev -- prisma migrate status",
     "db:studio": "infisical run --env=dev -- prisma studio",
-    "import:financials": "infisical run --env=prod -- tsx scripts/import-from-financials.mts"
+    "import:financials": "infisical run --env=prod -- tsx scripts/import-from-financials.mts",
+    "trendtrack:spike": "infisical run --env=dev -- tsx scripts/trendtrack-spike.mts",
+    "reference:ingest": "infisical run --env=dev -- tsx scripts/reference-ingest.mts",
+    "reference:coverage": "infisical run --env=dev -- tsx scripts/reference-coverage.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.101.0",

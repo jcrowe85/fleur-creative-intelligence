@@ -30,7 +30,8 @@ model User {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  sessions Session[]
+  sessions        Session[]
+  savedReferences SavedReference[]
 
   @@index([status])
 }
@@ -192,4 +193,138 @@ model CreativeRun {
   failed      Int       @default(0)
   lastError   String?
   token       String?
+}
+
+// ── Reference library (competitor / market creative) ──────────────────────────
+//
+// Durable, high-reach video ads pulled from TrendTrack — OTHER brands' proven
+// creative, used to inspire and brief Fleur's own creators. Kept in its own
+// tables, entirely separate from CreativeAsset/CreativeAnalysis, because those
+// drive Fleur's portfolio coverage/gaps math and competitor creative must never
+// enter that calculation.
+//
+// We store every field TrendTrack returns (plus the untouched payload in `raw`,
+// so a field we don't model yet is never lost) and mirror the video into our own
+// storage — TrendTrack/Meta media URLs are signed and expire within days, so a
+// saved source URL cannot be served to a creator later.
+
+model ReferenceAsset {
+  id          String @id @default(cuid())
+  ttAdId      String @unique // TrendTrack ad id — the upsert key
+  collationId String? // TrendTrack's dedupe group across variants
+  platform    String? // facebook | tiktok | google
+
+  advertiserName String?
+  advertiserId   String?
+
+  mediaType   String // video | image | carousel
+  // Source URLs are what TrendTrack gave us; they expire. Kept for re-mirroring.
+  sourceMediaUrl String? @db.Text
+  sourceThumbUrl String? @db.Text
+  // Our permanent copies in Supabase Storage. Null until mirrored.
+  mediaUrl    String? @db.Text
+  thumbUrl    String? @db.Text
+  mediaBytes  Int?
+  durationSec Float?
+
+  title          String? @db.Text
+  body           String? @db.Text
+  transcript     String? @db.Text
+  landingPageUrl String? @db.Text
+  cta            String?
+
+  // Durability / scale signals — the reason a reference ad earns its place.
+  reach         Int?
+  estSpend      Float?
+  daysRunning   Int?
+  variants      Int? // TrendTrack "duplicates": how many variants the brand runs
+  reachDelta7d  Int?
+  reachDelta30d Int?
+
+  gender      String?
+  ageMin      Int?
+  ageMax      Int?
+  countries   String[]
+  mainCountry String?
+
+  // The complete TrendTrack record, so no field is ever lost to our schema.
+  raw Json
+
+  firstSeen DateTime @default(now())
+  lastSeen  DateTime @default(now())
+
+  // Mirror + analysis bookkeeping, mirroring CreativeAsset's retry fields.
+  attempts  Int     @default(0)
+  lastError String?
+
+  analysis ReferenceAnalysis?
+  saves    SavedReference[]
+
+  @@index([mediaType])
+  @@index([advertiserName])
+  @@index([daysRunning])
+  @@index([reach])
+}
+
+// A creator's swipe decision on a reference ad. Right-swipe saves it to their
+// shot list; left-swipe dismisses it so the deck doesn't repeat. "filmed" marks
+// a saved idea they've since shot.
+model SavedReference {
+  id        String   @id @default(cuid())
+  userId    String
+  assetId   String
+  status    String   @default("saved") // saved | dismissed | filmed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset ReferenceAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, assetId])
+  @@index([userId, status])
+}
+
+// Our own classification of a reference asset, against the same taxonomy as
+// CreativeAnalysis. Indexed on the swipe app's lookup axes: the creator picks a
+// thin pillar × persona × funnel and we serve reference assets in that cell.
+model ReferenceAnalysis {
+  id      String         @id @default(cuid())
+  assetId String         @unique
+  asset   ReferenceAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  synopsis String? @db.Text
+  hookText String? @db.Text
+
+  pillar          String
+  pillarConf      Float
+  pillarReason    String? @db.Text
+  secondaryPillar String?
+  persona         String
+  personaConf     Float
+  hook            String
+  hookConf        Float
+  funnel          String
+  funnelConf      Float
+  awareness       String
+  format          String
+  production      String
+  placementFit    String
+
+  hookStrength        Int
+  messageClarity      Int
+  differentiation     Int
+  productionQuality   Int
+  placementNativeness Int
+
+  complianceFlags   String[]
+  critique          String?  @db.Text
+  suggestedAdjacent String[]
+
+  model      String
+  analyzedAt DateTime @default(now())
+
+  @@index([pillar])
+  @@index([persona])
+  @@index([funnel])
+  @@index([format])
 }
