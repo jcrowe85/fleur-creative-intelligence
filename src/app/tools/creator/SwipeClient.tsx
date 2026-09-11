@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowUp, Bookmark, ChevronDown, Clapperboard, Heart, Play, TrendingUp, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, Bookmark, ChevronDown, Clapperboard, Play, TrendingUp, Volume2, VolumeX, X } from "lucide-react";
 import { labelFor } from "@/lib/creative/taxonomy";
 import type { ReferenceCard } from "@/lib/reference/lookup";
 import type { FeedCard } from "@/lib/reference/feed";
@@ -132,7 +132,6 @@ function RailButton({
 
 // ── swipe feed ────────────────────────────────────────────────────────────────
 
-const THRESHOLD = 110;
 
 function Feed({
   savedCount,
@@ -144,13 +143,13 @@ function Feed({
   onOpenSaved: () => void;
 }) {
   const [cards, setCards] = useState<FeedCard[] | null>(null);
-  const [i, setI] = useState(0);
-  const [drag, setDrag] = useState({ x: 0, y: 0 });
-  const [leaving, setLeaving] = useState<null | "left" | "right">(null);
+  const [active, setActive] = useState(0);
   const [muted, setMuted] = useState(true);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragging = useRef(false);
-  const start = useRef({ x: 0, y: 0 });
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const savedRef = useRef<Set<string>>(new Set()); // mirror for stable closures
+  const recorded = useRef<Set<string>>(new Set()); // assets already dismissed/saved
+  const prevActive = useRef(0);
 
   useEffect(() => {
     let alive = true;
@@ -163,65 +162,75 @@ function Feed({
     };
   }, []);
 
-  const record = useCallback(
-    (assetId: string, status: "saved" | "dismissed") => {
-      if (status === "saved") onSavedChange(1);
-      fetch("/api/reference/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assetId, status }),
-      }).catch(() => {});
-    },
-    [onSavedChange],
-  );
+  // Track which video is in view (the active one plays).
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root || !cards) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting && e.intersectionRatio >= 0.6) {
+            setActive(Number((e.target as HTMLElement).dataset.idx));
+          }
+        }
+      },
+      { root, threshold: [0.6] },
+    );
+    root.querySelectorAll("[data-idx]").forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [cards]);
 
-  const decide = useCallback(
-    (dir: "left" | "right") => {
-      if (!cards || i >= cards.length || leaving) return;
-      record(cards[i].id, dir === "right" ? "saved" : "dismissed");
-      setLeaving(dir);
-      setTimeout(() => {
-        setLeaving(null);
-        setDrag({ x: 0, y: 0 });
-        setI((n) => n + 1);
-      }, 240);
-    },
-    [cards, i, leaving, record],
-  );
+  const post = (assetId: string, status: "saved" | "dismissed") =>
+    fetch("/api/reference/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assetId, status }),
+    }).catch(() => {});
 
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (leaving) return;
-    dragging.current = true;
-    setIsDragging(true);
-    start.current = { x: e.clientX, y: e.clientY };
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragging.current) return;
-    setDrag({ x: e.clientX - start.current.x, y: e.clientY - start.current.y });
-  };
-  const onPointerUp = () => {
-    if (!dragging.current) return;
-    dragging.current = false;
-    setIsDragging(false);
-    if (drag.x > THRESHOLD) decide("right");
-    else if (drag.x < -THRESHOLD) decide("left");
-    else setDrag({ x: 0, y: 0 });
+  // Scrolling past a video (advancing forward) is an implicit "deny" — record it
+  // dismissed so future feeds don't repeat it, unless the creator saved it.
+  useEffect(() => {
+    if (!cards) return;
+    for (let k = prevActive.current; k < active; k++) {
+      const c = cards[k];
+      if (c && !savedRef.current.has(c.id) && !recorded.current.has(c.id)) {
+        recorded.current.add(c.id);
+        post(c.id, "dismissed");
+      }
+    }
+    prevActive.current = active;
+  }, [active, cards]);
+
+  const toggleSave = (card: FeedCard) => {
+    setSavedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(card.id)) {
+        next.delete(card.id);
+        recorded.current.add(card.id);
+        onSavedChange(-1);
+        post(card.id, "dismissed");
+      } else {
+        next.add(card.id);
+        recorded.current.delete(card.id);
+        onSavedChange(1);
+        post(card.id, "saved");
+      }
+      savedRef.current = next;
+      return next;
+    });
   };
 
   if (cards === null) {
     return <div className="flex h-full w-full items-center justify-center text-white/60">Loading your feed…</div>;
   }
 
-  const remaining = cards.slice(i, i + 3);
-
-  if (remaining.length === 0) {
+  if (cards.length === 0) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-8 text-center">
         <Clapperboard className="text-white/50" />
-        <p className="text-sm text-white/60">You’ve been through everything for now. Check your shot list, or come back as we add more.</p>
+        <p className="text-sm text-white/60">You’ve been through everything for now. Check your saved videos, or come back as we add more.</p>
         <button onClick={onOpenSaved} className="mt-2 rounded-full bg-white/15 px-4 py-2 text-sm font-medium backdrop-blur-sm">
-          View shot list ({savedCount})
+          Saved videos ({savedCount})
         </button>
       </div>
     );
@@ -229,77 +238,53 @@ function Feed({
 
   return (
     <div className="relative h-full w-full">
-      {remaining
-        .map((card, idx) => {
-          const isTop = idx === 0;
-          const offset = isTop ? drag : { x: 0, y: 0 };
-          const rot = isTop ? drag.x / 22 : 0;
-          const leavingX = leaving === "right" ? 700 : leaving === "left" ? -700 : 0;
-          const style: React.CSSProperties = {
-            transform: isTop
-              ? `translate(${offset.x + leavingX}px, ${offset.y}px) rotate(${leaving ? drag.x / 22 + (leaving === "right" ? 15 : -15) : rot}deg)`
-              : "none",
-            transition: isDragging && isTop ? "none" : "transform 0.24s ease-out",
-            zIndex: remaining.length - idx,
-          };
+      <div
+        ref={scrollRef}
+        className="h-full w-full snap-y snap-mandatory overflow-y-scroll overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {cards.map((card, idx) => {
+          const near = Math.abs(idx - active) <= 1;
+          const isActive = idx === active;
+          const isSaved = savedIds.has(card.id);
           return (
-            <div
-              key={card.id}
-              className="absolute inset-0 touch-none"
-              style={style}
-              onPointerDown={isTop ? onPointerDown : undefined}
-              onPointerMove={isTop ? onPointerMove : undefined}
-              onPointerUp={isTop ? onPointerUp : undefined}
-              onPointerCancel={isTop ? onPointerUp : undefined}
-            >
-              {isTop && (
-                <>
-                  <Stamp show={drag.x > 40} kind="save" />
-                  <Stamp show={drag.x < -40} kind="skip" />
-                </>
+            <div key={card.id} data-idx={idx} className="relative h-full w-full snap-start snap-always">
+              {near ? (
+                <CardFace card={card} active={isActive} muted={muted} preload="auto" />
+              ) : (
+                <div className="h-full w-full bg-black">
+                  {Math.abs(idx - active) <= 3 && card.thumbUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={card.thumbUrl} alt="" className="h-full w-full object-cover opacity-80" />
+                  ) : null}
+                </div>
               )}
-              {/* preload the top card and the next one so the swipe-to-next is instant */}
-              <CardFace card={card} active={isTop && !leaving} muted={muted} preload={idx <= 1 ? "auto" : "metadata"} />
+
+              {isActive && (
+                <div className="absolute bottom-7 right-3 z-30 flex flex-col items-center gap-5 pb-[env(safe-area-inset-bottom)]">
+                  <button onClick={() => toggleSave(card)} className="flex flex-col items-center gap-1 active:scale-95" aria-label={isSaved ? "Saved" : "Save"}>
+                    <span className={"flex h-12 w-12 items-center justify-center rounded-full backdrop-blur-sm transition " + (isSaved ? "bg-white text-black" : "bg-black/40 text-white")}>
+                      <Bookmark size={22} className={isSaved ? "fill-current" : ""} />
+                    </span>
+                    <span className="text-[11px] font-medium text-white/90 drop-shadow">{isSaved ? "Saved" : "Save"}</span>
+                  </button>
+                  <RailButton onClick={() => setMuted((m) => !m)} label={muted ? "Unmute" : "Mute"}>
+                    {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                  </RailButton>
+                </div>
+              )}
             </div>
           );
-        })
-        .reverse()}
-
-      {/* right action rail — fixed over the video, doesn't move with the swipe */}
-      <div className="absolute bottom-6 right-3 z-30 flex flex-col items-center gap-3 pb-[env(safe-area-inset-bottom)]">
-        <RailButton onClick={onOpenSaved} label="Shot list" className="relative">
-          <Bookmark size={20} />
-          {savedCount > 0 ? (
-            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-black">
-              {savedCount}
-            </span>
-          ) : null}
-        </RailButton>
-        <RailButton onClick={() => setMuted((m) => !m)} label={muted ? "Unmute" : "Mute"}>
-          {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-        </RailButton>
-        <RailButton onClick={() => decide("left")} label="Skip" className="h-14 w-14 ring-1 ring-white/20">
-          <X className="text-red-400" size={26} />
-        </RailButton>
-        <RailButton onClick={() => decide("right")} label="Save to shot list" className="h-14 w-14 ring-1 ring-white/20">
-          <Heart className="text-emerald-400" size={26} />
-        </RailButton>
+        })}
       </div>
-    </div>
-  );
-}
 
-function Stamp({ show, kind }: { show: boolean; kind: "save" | "skip" }) {
-  const save = kind === "save";
-  return (
-    <div
-      className={
-        "pointer-events-none absolute top-16 z-20 rounded-lg border-4 px-3 py-1 text-3xl font-black uppercase tracking-wider transition-opacity " +
-        (save ? "right-6 rotate-12 border-emerald-400 text-emerald-400" : "left-6 -rotate-12 border-red-400 text-red-400") +
-        (show ? " opacity-100" : " opacity-0")
-      }
-    >
-      {save ? "Save" : "Skip"}
+      {/* saved collection — where they find their saves, TikTok-profile style */}
+      <button
+        onClick={onOpenSaved}
+        className="absolute right-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-40 flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-2 text-sm font-medium text-white backdrop-blur-sm active:scale-95"
+      >
+        <Bookmark size={16} />
+        <span className="tabular-nums">{savedCount}</span>
+      </button>
     </div>
   );
 }
