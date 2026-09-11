@@ -134,15 +134,17 @@ function RailButton({
 
 
 function Feed({
+  initialCards,
   savedCount,
   onSavedChange,
   onOpenSaved,
 }: {
+  initialCards: FeedCard[];
   savedCount: number;
   onSavedChange: (delta: number) => void;
   onOpenSaved: () => void;
 }) {
-  const [cards, setCards] = useState<FeedCard[] | null>(null);
+  const [cards] = useState<FeedCard[]>(initialCards);
   const [active, setActive] = useState(0);
   const [muted, setMuted] = useState(true);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
@@ -150,17 +152,6 @@ function Feed({
   const savedRef = useRef<Set<string>>(new Set()); // mirror for stable closures
   const recorded = useRef<Set<string>>(new Set()); // assets already dismissed/saved
   const prevActive = useRef(0);
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/reference/feed")
-      .then((r) => r.json())
-      .then((d) => alive && setCards(d.cards ?? []))
-      .catch(() => alive && setCards([]));
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   // Track which video is in view (the active one plays).
   useEffect(() => {
@@ -219,10 +210,6 @@ function Feed({
       return next;
     });
   };
-
-  if (cards === null) {
-    return <div className="flex h-full w-full items-center justify-center text-white/60">Loading your feed…</div>;
-  }
 
   if (cards.length === 0) {
     return (
@@ -816,13 +803,20 @@ function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: 
 
 // ── root ──────────────────────────────────────────────────────────────────────
 
-export default function SwipeClient({ initialSavedCount }: { initialSavedCount: number }) {
+export default function SwipeClient({
+  initialSavedCount,
+  initialCards,
+}: {
+  initialSavedCount: number;
+  initialCards: FeedCard[];
+}) {
   const [showSaved, setShowSaved] = useState(false);
   const [saved, setSaved] = useState(initialSavedCount);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black text-white select-none">
       <Feed
+        initialCards={initialCards}
         savedCount={saved}
         onSavedChange={(d) => setSaved((s) => Math.max(0, s + d))}
         onOpenSaved={() => setShowSaved(true)}

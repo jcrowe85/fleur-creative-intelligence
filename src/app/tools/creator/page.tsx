@@ -1,6 +1,7 @@
 import type { Viewport } from "next";
 import { redirect } from "next/navigation";
 import { getCreatorUser } from "@/lib/dal";
+import { buildFeed } from "@/lib/reference/feed";
 import { savedCount } from "@/lib/reference/saves";
 import SwipeClient from "./SwipeClient";
 
@@ -31,6 +32,8 @@ export default async function Page({
     redirect(`/api/auth/guest?next=/tools/creator${q}`);
   }
 
-  const saved = await savedCount(user.id);
-  return <SwipeClient initialSavedCount={saved} />;
+  // Build the feed server-side so the first video is in the initial HTML — the
+  // app opens straight onto a playing video, no client fetch / loading screen.
+  const [saved, cards] = await Promise.all([savedCount(user.id), buildFeed(user.id)]);
+  return <SwipeClient initialSavedCount={saved} initialCards={cards} />;
 }
