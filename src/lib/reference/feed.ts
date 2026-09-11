@@ -35,18 +35,44 @@ const attrValues = (an: { production: string; format: string; pillar: string; ho
   ({ production: an.production, format: an.format, pillar: an.pillar, hook: an.hook, persona: an.persona }) as Record<string, string>;
 
 // Fleur's gap weights are the same for every creator and change only when the
-// portfolio is re-synced (hourly cron), so cache them — running buildPortfolio
-// on every feed request was adding ~2s to the page's TTFB.
-let gapCache: { at: number; weights: Map<string, number>; max: number } | null = null;
-const GAP_TTL_MS = 15 * 60 * 1000;
+// portfolio is re-synced (hourly), so we cache them instead of running
+// buildPortfolio on every feed request. The cache is PERSISTENT (an AppCache
+// row) because Vercel spreads requests across instances — an in-memory cache
+// misses too often. In-memory is layered on top to skip the DB read when warm.
+type GapWeights = { weights: Map<string, number>; max: number };
+let memGap: { at: number; value: GapWeights } | null = null;
+const GAP_TTL_MS = 60 * 60 * 1000;
 
-async function pillarWeights(): Promise<{ weights: Map<string, number>; max: number }> {
-  if (gapCache && Date.now() - gapCache.at < GAP_TTL_MS) return gapCache;
+async function computeGapWeights(): Promise<GapWeights> {
   const portfolio = await buildPortfolio();
   const weights = new Map<string, number>();
   for (const g of portfolio.gaps) weights.set(g.pillar, (weights.get(g.pillar) ?? 0) + g.priority);
-  gapCache = { at: Date.now(), weights, max: Math.max(1, ...weights.values()) };
-  return gapCache;
+  const value: GapWeights = { weights, max: Math.max(1, ...weights.values()) };
+  await db.appCache
+    .upsert({
+      where: { key: "gapWeights" },
+      create: { key: "gapWeights", json: { weights: [...weights], max: value.max } },
+      update: { json: { weights: [...weights], max: value.max } },
+    })
+    .catch(() => {});
+  memGap = { at: Date.now(), value };
+  return value;
+}
+
+async function pillarWeights(): Promise<GapWeights> {
+  if (memGap && Date.now() - memGap.at < GAP_TTL_MS) return memGap.value;
+
+  const row = await db.appCache.findUnique({ where: { key: "gapWeights" } }).catch(() => null);
+  if (row) {
+    const data = row.json as { weights: [string, number][]; max: number };
+    const value: GapWeights = { weights: new Map(data.weights), max: data.max };
+    memGap = { at: Date.now(), value };
+    // Stale? Recompute now (blocking) at most once per TTL — every other request
+    // in the window reads the fast row.
+    if (Date.now() - row.updatedAt.getTime() > GAP_TTL_MS) return computeGapWeights();
+    return value;
+  }
+  return computeGapWeights();
 }
 
 // Only the columns the feed needs — critically NOT `raw` (the full TrendTrack ad

@@ -185,6 +185,15 @@ model CreativeAnalysis {
   @@index([funnel])
 }
 
+// Tiny key/value cache for values that are expensive to compute but change
+// slowly and are shared across all users — e.g. Fleur's pillar gap weights,
+// which would otherwise re-run buildPortfolio on every feed request.
+model AppCache {
+  key       String   @id
+  json      Json
+  updatedAt DateTime @updatedAt
+}
+
 model CreativeRun {
   id          String    @id @default("singleton")
   status      String    @default("idle") // idle | running | stopped | done | error
