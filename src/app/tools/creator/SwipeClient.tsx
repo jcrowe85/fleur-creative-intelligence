@@ -31,7 +31,7 @@ function CardFace({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
-  const [buffering, setBuffering] = useState(true);
+  const [waiting, setWaiting] = useState(false); // genuine mid-playback buffering
   const [progress, setProgress] = useState(0); // 0..1
   const [scrubbing, setScrubbing] = useState(false);
   const [speed, setSpeed] = useState<0.5 | 2 | null>(null);
@@ -43,6 +43,12 @@ function CardFace({
   const pressStart = useRef(0);
   const downPos = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
+
+  // Kick off (or retry) playback when this is the active video and it's ready.
+  const tryPlay = () => {
+    const v = videoRef.current;
+    if (active && v && v.paused) v.play().catch(() => {});
+  };
 
   useEffect(() => {
     const v = videoRef.current;
@@ -143,10 +149,14 @@ function CardFace({
           loop
           playsInline
           preload={preload}
-          onWaiting={() => setBuffering(true)}
-          onStalled={() => setBuffering(true)}
-          onPlaying={() => setBuffering(false)}
-          onCanPlay={() => setBuffering(false)}
+          onWaiting={() => setWaiting(true)}
+          onStalled={() => setWaiting(true)}
+          onPlaying={() => setWaiting(false)}
+          onCanPlay={() => {
+            setWaiting(false);
+            tryPlay();
+          }}
+          onLoadedData={tryPlay}
           onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
           onTimeUpdate={(e) => {
             if (!scrubbing && e.currentTarget.duration) setProgress(e.currentTarget.currentTime / e.currentTarget.duration);
@@ -171,8 +181,8 @@ function CardFace({
         />
       ) : null}
 
-      {/* loading cue while the active video buffers */}
-      {active && buffering && card.mediaUrl && !scrubbing ? (
+      {/* loading cue only while the active video is genuinely buffering mid-play */}
+      {active && waiting && card.mediaUrl && !scrubbing ? (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
           <div className="h-11 w-11 animate-spin rounded-full border-[3px] border-white/25 border-t-white" />
         </div>
