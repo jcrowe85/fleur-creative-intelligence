@@ -42,12 +42,16 @@ export function faststartRemux(input: Buffer): Promise<Buffer> {
   return run(input, (i, o) => ["-y", "-i", i, "-c", "copy", "-movflags", "+faststart", o]);
 }
 
-/** Full re-encode to 720p H.264/AAC + faststart. Slow; for oversized outliers. */
+/** Full re-encode to 720p H.264/AAC + faststart, with a bitrate cap so output is
+ *  predictably small (~a few MB) regardless of the source. Slow; for oversized
+ *  outliers only. */
 export function downscale720p(input: Buffer): Promise<Buffer> {
   return run(input, (i, o) => [
     "-y", "-i", i,
     "-vf", `scale='if(gt(iw,ih),min(720,iw),-2)':'if(gt(iw,ih),-2,min(720,ih))'`,
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "30",
+    // cap the bitrate so a long/high-motion source can't stay huge
+    "-maxrate", "1500k", "-bufsize", "3000k",
     "-c:a", "aac", "-b:a", "96k",
     "-movflags", "+faststart",
     o,

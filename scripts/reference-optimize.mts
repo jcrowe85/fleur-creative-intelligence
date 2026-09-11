@@ -49,8 +49,20 @@ async function main() {
   let savedBytes = 0;
   let failed = 0;
 
+  let skipped = 0;
   await pool(targets, concurrency, async (a) => {
     try {
+      // Skip work already done: a HEAD shows if it's cached (backfilled) and its
+      // size. Cached + within the downscale threshold → nothing to do. Keeps
+      // re-runs cheap and avoids hammering storage into 429s.
+      const head = await fetch(a.mediaUrl!, { method: "HEAD" });
+      const cached = (head.headers.get("cache-control") ?? "").includes("max-age=31536000");
+      const sizeMB = Number(head.headers.get("content-length") ?? a.mediaBytes ?? 0) / 1e6;
+      if (cached && sizeMB <= downscaleAboveMB) {
+        skipped += 1;
+        return;
+      }
+
       const r = await fetch(a.mediaUrl!);
       if (!r.ok) throw new Error(`fetch ${r.status}`);
       const before = Buffer.from(await r.arrayBuffer());
@@ -69,7 +81,7 @@ async function main() {
     }
   });
 
-  console.log(`\nDone: optimised ${done}, failed ${failed}. Reclaimed ~${(savedBytes / 1e9).toFixed(2)}GB.`);
+  console.log(`\nDone: optimised ${done}, skipped ${skipped} (already good), failed ${failed}. Reclaimed ~${(savedBytes / 1e9).toFixed(2)}GB.`);
 }
 
 main()
