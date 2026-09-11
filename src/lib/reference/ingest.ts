@@ -18,6 +18,7 @@ import type { Prisma } from "@prisma/client";
 import { analyzeCreative } from "@/lib/creative/analyze";
 import { db } from "@/lib/db";
 import { storageConfigured, uploadToStorage } from "./storage";
+import { faststartRemux } from "./transcode";
 import { queryAds, toAssetRow, type AdsQuery, type TrendTrackAd } from "./trendtrack";
 
 const MODEL = "claude-sonnet-4-6";
@@ -68,9 +69,6 @@ async function download(url: string): Promise<{ buf: Buffer; contentType: string
   }
 }
 
-const extFor = (contentType: string): string =>
-  contentType.includes("webm") ? "webm" : contentType.includes("quicktime") ? "mov" : "mp4";
-
 async function mirror(
   ttAdId: string,
   ad: TrendTrackAd,
@@ -80,14 +78,17 @@ async function mirror(
   const dl = await download(src);
   if (!dl) throw new Error("video download failed or not media");
 
-  const mediaUrl = await uploadToStorage(`video/${ttAdId}.${extFor(dl.contentType)}`, dl.buf, dl.contentType);
+  // Store a faststart copy so it streams progressively instead of stalling;
+  // classify from the original download for the best frames.
+  const optimized = await faststartRemux(dl.buf);
+  const mediaUrl = await uploadToStorage(`video/${ttAdId}.mp4`, optimized, "video/mp4");
 
   let thumbUrl: string | null = null;
   if (ad.media?.thumbnailUrl) {
     const t = await download(ad.media.thumbnailUrl).catch(() => null);
     if (t) thumbUrl = await uploadToStorage(`thumb/${ttAdId}.jpg`, t.buf, t.contentType).catch(() => null as never);
   }
-  return { mediaUrl, thumbUrl, bytes: dl.buf.byteLength, videoBuf: dl.buf };
+  return { mediaUrl, thumbUrl, bytes: optimized.byteLength, videoBuf: dl.buf };
 }
 
 /** Ingest a single ad: upsert → mirror → classify → save. Never throws. */

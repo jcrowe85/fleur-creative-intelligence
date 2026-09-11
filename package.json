@@ -20,7 +20,8 @@
     "trendtrack:spike": "infisical run --env=dev -- tsx scripts/trendtrack-spike.mts",
     "reference:ingest": "infisical run --env=dev -- tsx scripts/reference-ingest.mts",
     "reference:coverage": "infisical run --env=dev -- tsx scripts/reference-coverage.mts",
-    "reference:bulk": "infisical run --env=dev -- tsx scripts/reference-ingest-bulk.mts"
+    "reference:bulk": "infisical run --env=dev -- tsx scripts/reference-ingest-bulk.mts",
+    "reference:optimize": "infisical run --env=dev -- tsx scripts/reference-optimize.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.101.0",
