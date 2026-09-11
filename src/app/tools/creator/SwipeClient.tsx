@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Bookmark, Clapperboard, Heart, Play, TrendingUp, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, Bookmark, ChevronDown, Clapperboard, Heart, Play, TrendingUp, Volume2, VolumeX, X } from "lucide-react";
 import { labelFor } from "@/lib/creative/taxonomy";
 import type { ReferenceCard } from "@/lib/reference/lookup";
 import type { FeedCard } from "@/lib/reference/feed";
@@ -306,11 +306,29 @@ function Stamp({ show, kind }: { show: boolean; kind: "save" | "skip" }) {
 
 // ── creative framework ("how to remake this for Fleur") ───────────────────────
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Collapsible({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  summary?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="mb-4">
-      <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/40">{title}</h3>
-      {children}
+    <div className="border-b border-white/10">
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between gap-3 py-3.5 text-left">
+        <span className="text-[15px] font-semibold text-white">{title}</span>
+        <ChevronDown size={18} className={"shrink-0 text-white/40 transition-transform duration-200 " + (open ? "rotate-180" : "")} />
+      </button>
+      {open ? (
+        <div className="pb-4">{children}</div>
+      ) : summary ? (
+        <p className="-mt-1.5 line-clamp-1 pb-3.5 text-[12.5px] text-white/40">{summary}</p>
+      ) : null}
     </div>
   );
 }
@@ -334,7 +352,7 @@ function FrameworkView({ assetId }: { assetId: string }) {
     return <p className="text-sm text-white/50">Couldn’t build a brief for this one right now — try again in a moment.</p>;
   if (!fw)
     return (
-      <div className="flex items-center gap-3 py-6 text-sm text-white/60">
+      <div className="flex items-center gap-3 py-8 text-sm text-white/60">
         <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/25 border-t-white" />
         Building your creative brief…
       </div>
@@ -342,12 +360,12 @@ function FrameworkView({ assetId }: { assetId: string }) {
 
   return (
     <div className="text-white">
-      <Section title="Why it works">
-        <p className="text-[15px] font-medium leading-snug">{fw.whyItWorks}</p>
-      </Section>
+      <Collapsible title="Why it works" defaultOpen>
+        <p className="text-[14px] leading-relaxed text-white/85">{fw.whyItWorks}</p>
+      </Collapsible>
 
       {fw.beats.length > 0 && (
-        <Section title="The structure">
+        <Collapsible title="The structure" summary={`${fw.beats.length} beats — the shot-by-shot`}>
           <ol className="space-y-2.5">
             {fw.beats.map((b, i) => (
               <li key={i} className="flex gap-3">
@@ -360,35 +378,35 @@ function FrameworkView({ assetId }: { assetId: string }) {
               </li>
             ))}
           </ol>
-        </Section>
+        </Collapsible>
       )}
 
       {fw.hookOptions.length > 0 && (
-        <Section title="Hook options">
-          <ul className="space-y-1.5">
+        <Collapsible title="Hook options" summary={`${fw.hookOptions.length} ways to open`}>
+          <ul className="space-y-2">
             {fw.hookOptions.map((h, i) => (
               <li key={i} className="text-[13px] leading-snug text-white/85">• {h}</li>
             ))}
           </ul>
-        </Section>
+        </Collapsible>
       )}
 
-      <Section title="Where Fleur fits">
-        <p className="text-[13px] leading-snug text-white/85">{fw.fleurAngle}</p>
-      </Section>
+      <Collapsible title="Where Fleur fits" summary={fw.fleurAngle}>
+        <p className="text-[13px] leading-relaxed text-white/85">{fw.fleurAngle}</p>
+      </Collapsible>
 
-      <Section title="Make it yours">
-        <p className="text-[13px] leading-snug text-white/85">{fw.yourCanvas}</p>
-      </Section>
+      <Collapsible title="Make it yours" summary={fw.yourCanvas}>
+        <p className="text-[13px] leading-relaxed text-white/85">{fw.yourCanvas}</p>
+      </Collapsible>
 
       {fw.compliance.length > 0 && (
-        <Section title="Keep it compliant">
-          <ul className="space-y-1 rounded-lg bg-amber-500/10 p-3 ring-1 ring-amber-400/20">
+        <Collapsible title="Keep it compliant" summary={`${fw.compliance.length} guardrails`}>
+          <ul className="space-y-1.5 rounded-lg bg-amber-500/10 p-3 ring-1 ring-amber-400/20">
             {fw.compliance.map((c, i) => (
               <li key={i} className="text-[12px] leading-snug text-amber-200/90">• {c}</li>
             ))}
           </ul>
-        </Section>
+        </Collapsible>
       )}
     </div>
   );
@@ -399,21 +417,44 @@ function FrameworkView({ assetId }: { assetId: string }) {
 type ChatMsg = { role: "user" | "assistant"; content: string };
 const SUGGESTIONS = ["Write me a full script", "Suggest a different setting", "Make it 15 seconds", "Re-angle for postpartum"];
 
+function TypingDots() {
+  return (
+    <div className="flex items-center gap-1 py-1">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/60"
+          style={{ animationDelay: `${i * 0.15}s`, animationDuration: "0.9s" }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function ChatView({ assetId }: { assetId: string }) {
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs]);
+
+  const grow = () => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
+  };
 
   const send = async (text: string) => {
     if (!text.trim() || busy) return;
     const next: ChatMsg[] = [...msgs, { role: "user", content: text.trim() }];
     setMsgs([...next, { role: "assistant", content: "" }]);
     setInput("");
+    requestAnimationFrame(grow);
     setBusy(true);
     try {
       const res = await fetch("/api/reference/chat", {
@@ -448,39 +489,47 @@ function ChatView({ assetId }: { assetId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pb-2">
         {msgs.length === 0 ? (
           <div className="space-y-3 py-2">
             <p className="text-[13px] text-white/50">Ask about remaking this for Fleur — a script, a different setting, a re-angle, a shorter cut.</p>
             <div className="flex flex-wrap gap-2">
               {SUGGESTIONS.map((s) => (
-                <button key={s} onClick={() => send(s)} className="rounded-full bg-white/10 px-3 py-1.5 text-[12px] text-white/85">
+                <button key={s} onClick={() => send(s)} className="rounded-full bg-white/10 px-3 py-1.5 text-[12px] text-white/85 active:scale-95">
                   {s}
                 </button>
               ))}
             </div>
           </div>
         ) : (
-          msgs.map((m, i) => (
-            <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-              <div
-                className={
-                  "max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-[13px] leading-snug " +
-                  (m.role === "user" ? "bg-white text-black" : "bg-white/10 text-white/90")
-                }
-              >
-                {m.content || (busy ? "…" : "")}
+          msgs.map((m, i) => {
+            const sent = m.role === "user";
+            const dots = !sent && !m.content && busy;
+            return (
+              <div key={i} className={sent ? "flex justify-end" : "flex justify-start"}>
+                <div
+                  className={
+                    "max-w-[82%] whitespace-pre-wrap break-words rounded-[20px] px-3.5 py-2 text-[14px] leading-[1.35] " +
+                    (sent ? "rounded-br-md bg-[#0A84FF] text-white" : "rounded-bl-md bg-[#262629] text-white")
+                  }
+                >
+                  {dots ? <TypingDots /> : m.content}
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
         <div ref={endRef} />
       </div>
 
-      <div className="mt-3 flex items-end gap-2 pt-2">
+      <div className="mt-2 flex items-end gap-2 rounded-[22px] bg-white/10 px-2 py-1.5">
         <textarea
+          ref={taRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            grow();
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -489,17 +538,100 @@ function ChatView({ assetId }: { assetId: string }) {
           }}
           rows={1}
           placeholder="Ask anything about this idea…"
-          className="max-h-28 flex-1 resize-none rounded-2xl bg-white/10 px-3 py-2 text-[13px] text-white placeholder:text-white/40 focus:outline-none"
+          className="min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-[14px] leading-snug text-white placeholder:text-white/40 focus:outline-none"
         />
         <button
           onClick={() => send(input)}
           disabled={busy || !input.trim()}
-          className="shrink-0 rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-black disabled:opacity-40"
+          aria-label="Send"
+          className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0A84FF] text-white transition disabled:bg-white/20 disabled:text-white/40"
         >
-          Send
+          <ArrowUp size={18} strokeWidth={2.5} />
         </button>
       </div>
     </div>
+  );
+}
+
+// ── brief + chat bottom sheet (slides up, drag-down to dismiss) ───────────────
+
+function BriefSheet({ card, onClose }: { card: ReferenceCard; onClose: () => void }) {
+  const [tab, setTab] = useState<"brief" | "chat">("brief");
+  const [entered, setEntered] = useState(false);
+  const [y, setY] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const startY = useRef(0);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const close = useCallback(() => {
+    setEntered(false);
+    setY(0);
+    setTimeout(onClose, 260);
+  }, [onClose]);
+
+  const onDown = (e: React.PointerEvent) => {
+    setDragging(true);
+    startY.current = e.clientY;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onMove = (e: React.PointerEvent) => {
+    if (!dragging) return;
+    setY(Math.max(0, e.clientY - startY.current));
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    setDragging(false);
+    if (y > 120) close();
+    else setY(0);
+  };
+
+  return (
+    <>
+      <div
+        onClick={close}
+        className={"absolute inset-0 z-[55] bg-black/50 transition-opacity duration-300 " + (entered ? "opacity-100" : "opacity-0")}
+      />
+      <div
+        style={{
+          transform: entered ? `translateY(${y}px)` : "translateY(100%)",
+          transition: dragging ? "none" : "transform 0.28s cubic-bezier(0.32,0.72,0,1)",
+        }}
+        className="absolute inset-x-0 bottom-0 z-[60] flex h-[86%] flex-col rounded-t-2xl bg-neutral-950 shadow-2xl"
+      >
+        <div className="shrink-0 px-4 pt-3">
+          {/* grabber — the drag handle */}
+          <div onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} className="-my-2 touch-none py-2">
+            <div className="mx-auto h-1.5 w-10 rounded-full bg-white/25" />
+          </div>
+          <div className="mb-3 mt-3 flex items-center justify-between">
+            <div className="flex gap-1 rounded-full bg-white/10 p-1">
+              <button onClick={() => setTab("brief")} className={"rounded-full px-3.5 py-1 text-[13px] font-medium " + (tab === "brief" ? "bg-white text-black" : "text-white/70")}>
+                Brief
+              </button>
+              <button onClick={() => setTab("chat")} className={"rounded-full px-3.5 py-1 text-[13px] font-medium " + (tab === "chat" ? "bg-white text-black" : "text-white/70")}>
+                Brainstorm
+              </button>
+            </div>
+            <button onClick={close} className="rounded-full bg-white/10 p-1.5" aria-label="Close">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+        {tab === "brief" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8">
+            <FrameworkView key={card.id} assetId={card.id} />
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 px-4 pb-4">
+            <ChatView key={card.id} assetId={card.id} />
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -509,12 +641,10 @@ function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: 
   const [cards, setCards] = useState<ReferenceCard[] | null>(null);
   const [playing, setPlaying] = useState<ReferenceCard | null>(null);
   const [showBrief, setShowBrief] = useState(false);
-  const [tab, setTab] = useState<"brief" | "chat">("brief");
   const [muted, setMuted] = useState(false); // reopening a saved video: sound on
 
   const open = (c: ReferenceCard) => {
     setShowBrief(false);
-    setTab("brief");
     setPlaying(c);
   };
 
@@ -617,51 +747,16 @@ function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: 
             {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
 
-          {/* Creative brief — the "how to remake this for Fleur" framework */}
-          {!showBrief ? (
+          {/* Creative brief — opens the slide-up brief + brainstorm sheet */}
+          {!showBrief && (
             <button
               onClick={() => setShowBrief(true)}
-              className="absolute bottom-7 left-1/2 z-[55] -translate-x-1/2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black shadow-lg"
+              className="absolute bottom-7 left-1/2 z-[55] -translate-x-1/2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black shadow-lg active:scale-95"
             >
               Creative brief
             </button>
-          ) : (
-            <div className="absolute inset-x-0 bottom-0 z-[60] flex h-[85%] flex-col rounded-t-2xl bg-neutral-950/95 p-4 pb-6 backdrop-blur-md">
-              <button
-                onClick={() => setShowBrief(false)}
-                className="mx-auto mb-3 block h-1.5 w-10 shrink-0 rounded-full bg-white/25"
-                aria-label="Close"
-              />
-              <div className="mb-3 flex shrink-0 items-center justify-between">
-                <div className="flex gap-1 rounded-full bg-white/10 p-1">
-                  <button
-                    onClick={() => setTab("brief")}
-                    className={"rounded-full px-3 py-1 text-[13px] font-medium " + (tab === "brief" ? "bg-white text-black" : "text-white/70")}
-                  >
-                    Brief
-                  </button>
-                  <button
-                    onClick={() => setTab("chat")}
-                    className={"rounded-full px-3 py-1 text-[13px] font-medium " + (tab === "chat" ? "bg-white text-black" : "text-white/70")}
-                  >
-                    Brainstorm
-                  </button>
-                </div>
-                <button onClick={() => setShowBrief(false)} className="rounded-full bg-white/10 p-1.5" aria-label="Close">
-                  <X size={16} />
-                </button>
-              </div>
-              {tab === "brief" ? (
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  <FrameworkView key={playing.id} assetId={playing.id} />
-                </div>
-              ) : (
-                <div className="min-h-0 flex-1">
-                  <ChatView key={playing.id} assetId={playing.id} />
-                </div>
-              )}
-            </div>
           )}
+          {showBrief && <BriefSheet card={playing} onClose={() => setShowBrief(false)} />}
         </div>
       ) : null}
     </div>
