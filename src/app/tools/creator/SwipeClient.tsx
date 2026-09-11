@@ -15,8 +15,19 @@ const chip = "rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-
 
 // ── fullscreen card face (video + overlaid content) ───────────────────────────
 
-function CardFace({ card, active, muted }: { card: FeedCard | ReferenceCard; active: boolean; muted: boolean }) {
+function CardFace({
+  card,
+  active,
+  muted,
+  preload,
+}: {
+  card: FeedCard | ReferenceCard;
+  active: boolean;
+  muted: boolean;
+  preload: "auto" | "metadata";
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [buffering, setBuffering] = useState(true);
   const thin = "thinForFleur" in card && card.thinForFleur;
 
   useEffect(() => {
@@ -36,7 +47,11 @@ function CardFace({ card, active, muted }: { card: FeedCard | ReferenceCard; act
           muted={muted}
           loop
           playsInline
-          preload={active ? "auto" : "metadata"}
+          preload={preload}
+          onWaiting={() => setBuffering(true)}
+          onStalled={() => setBuffering(true)}
+          onPlaying={() => setBuffering(false)}
+          onCanPlay={() => setBuffering(false)}
           className="h-full w-full object-cover"
         />
       ) : card.thumbUrl ? (
@@ -48,6 +63,13 @@ function CardFace({ card, active, muted }: { card: FeedCard | ReferenceCard; act
 
       <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/70 to-transparent" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
+
+      {/* loading cue while the active video buffers */}
+      {active && buffering && card.mediaUrl ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="h-11 w-11 animate-spin rounded-full border-[3px] border-white/25 border-t-white" />
+        </div>
+      ) : null}
 
       {/* top-left: brand + thin nudge */}
       <div className="absolute left-4 top-[env(safe-area-inset-top)] mt-4 flex items-center gap-2">
@@ -235,7 +257,8 @@ function Feed({
                   <Stamp show={drag.x < -40} kind="skip" />
                 </>
               )}
-              <CardFace card={card} active={isTop && !leaving} muted={muted} />
+              {/* preload the top card and the next one so the swipe-to-next is instant */}
+              <CardFace card={card} active={isTop && !leaving} muted={muted} preload={idx <= 1 ? "auto" : "metadata"} />
             </div>
           );
         })

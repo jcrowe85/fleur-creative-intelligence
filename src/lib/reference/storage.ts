@@ -42,6 +42,10 @@ export async function uploadToStorage(
       Authorization: `Bearer ${key}`,
       apikey: key,
       "Content-Type": contentType,
+      // Cache aggressively at the CDN edge — the media is immutable per path, so
+      // this turns repeat plays into fast edge hits instead of origin fetches.
+      // Without it Supabase serves `no-cache` and every play stalls on origin.
+      "cache-control": "public, max-age=31536000, immutable",
       // Re-mirroring the same asset should overwrite, not 409.
       "x-upsert": "true",
     },
