@@ -431,12 +431,13 @@ function TypingDots() {
   );
 }
 
-function ChatView({ assetId }: { assetId: string }) {
+function ChatView({ assetId, onPull }: { assetId: string; onPull?: (clientY: number, atTop: boolean) => void }) {
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -489,7 +490,12 @@ function ChatView({ assetId }: { assetId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pb-2">
+      <div
+        ref={scrollRef}
+        onPointerDown={(e) => onPull?.(e.clientY, (scrollRef.current?.scrollTop ?? 0) <= 0)}
+        style={{ overscrollBehavior: "contain" }}
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto pb-2"
+      >
         {msgs.length === 0 ? (
           <div className="space-y-3 py-2">
             <p className="text-[13px] text-white/50">Ask about remaking this for Fleur — a script, a different setting, a re-angle, a shorter cut.</p>
@@ -560,34 +566,61 @@ function BriefSheet({ card, onClose }: { card: ReferenceCard; onClose: () => voi
   const [entered, setEntered] = useState(false);
   const [y, setY] = useState(0);
   const [dragging, setDragging] = useState(false);
-  const startY = useRef(0);
+  const yRef = useRef(0);
+  const briefScroll = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const id = requestAnimationFrame(() => setEntered(true));
     return () => cancelAnimationFrame(id);
   }, []);
 
+  const setYv = (v: number) => {
+    yRef.current = v;
+    setY(v);
+  };
+
   const close = useCallback(() => {
     setEntered(false);
-    setY(0);
+    setYv(0);
     setTimeout(onClose, 260);
   }, [onClose]);
 
-  const onDown = (e: React.PointerEvent) => {
-    setDragging(true);
-    startY.current = e.clientY;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-  };
-  const onMove = (e: React.PointerEvent) => {
-    if (!dragging) return;
-    setY(Math.max(0, e.clientY - startY.current));
-  };
-  const onUp = () => {
-    if (!dragging) return;
-    setDragging(false);
-    if (y > 120) close();
-    else setY(0);
-  };
+  // Start a drag-to-dismiss from `clientY`. `fromTop` gates whether a downward
+  // pull dismisses (always for the header; for the scroll body only when it's
+  // already scrolled to the top). Window listeners + a small movement threshold
+  // mean taps still register on buttons — no pointer capture to fight them.
+  const startDrag = useCallback(
+    (clientY: number, fromTop: boolean) => {
+      let active = false;
+      const onMove = (e: PointerEvent) => {
+        const dy = e.clientY - clientY;
+        if (!active) {
+          if (dy > 6 && fromTop) {
+            active = true;
+            setDragging(true);
+          } else return;
+        }
+        if (dy >= 0) {
+          setYv(dy);
+          e.preventDefault();
+        }
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        if (active) {
+          setDragging(false);
+          if (yRef.current > 110) close();
+          else setYv(0);
+        }
+      };
+      window.addEventListener("pointermove", onMove, { passive: false });
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    },
+    [close],
+  );
 
   return (
     <>
@@ -602,12 +635,14 @@ function BriefSheet({ card, onClose }: { card: ReferenceCard; onClose: () => voi
         }}
         className="absolute inset-x-0 bottom-0 z-[60] flex h-[86%] flex-col rounded-t-2xl bg-neutral-950 shadow-2xl"
       >
-        <div className="shrink-0 px-4 pt-3">
-          {/* grabber — the drag handle */}
-          <div onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} className="-my-2 touch-none py-2">
-            <div className="mx-auto h-1.5 w-10 rounded-full bg-white/25" />
-          </div>
-          <div className="mb-3 mt-3 flex items-center justify-between">
+        {/* whole header is the drag handle */}
+        <div
+          onPointerDown={(e) => startDrag(e.clientY, true)}
+          style={{ touchAction: "none" }}
+          className="shrink-0 px-4 pt-2"
+        >
+          <div className="mx-auto my-2 h-1.5 w-10 rounded-full bg-white/30" />
+          <div className="mb-3 mt-1 flex items-center justify-between">
             <div className="flex gap-1 rounded-full bg-white/10 p-1">
               <button onClick={() => setTab("brief")} className={"rounded-full px-3.5 py-1 text-[13px] font-medium " + (tab === "brief" ? "bg-white text-black" : "text-white/70")}>
                 Brief
@@ -622,12 +657,17 @@ function BriefSheet({ card, onClose }: { card: ReferenceCard; onClose: () => voi
           </div>
         </div>
         {tab === "brief" ? (
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8">
+          <div
+            ref={briefScroll}
+            onPointerDown={(e) => startDrag(e.clientY, (briefScroll.current?.scrollTop ?? 0) <= 0)}
+            style={{ overscrollBehavior: "contain" }}
+            className="min-h-0 flex-1 overflow-y-auto px-4 pb-8"
+          >
             <FrameworkView key={card.id} assetId={card.id} />
           </div>
         ) : (
           <div className="min-h-0 flex-1 px-4 pb-4">
-            <ChatView key={card.id} assetId={card.id} />
+            <ChatView key={card.id} assetId={card.id} onPull={startDrag} />
           </div>
         )}
       </div>
