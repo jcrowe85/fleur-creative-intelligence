@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowUp, Bookmark, ChevronDown, Clapperboard, Play, TrendingUp, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, Bookmark, ChevronDown, Clapperboard, Play, Sparkles, TrendingUp, Volume2, VolumeX, X } from "lucide-react";
 import { labelFor } from "@/lib/creative/taxonomy";
 import type { ReferenceCard } from "@/lib/reference/lookup";
 import type { FeedCard } from "@/lib/reference/feed";
@@ -128,6 +128,12 @@ function CardFace({
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-black">
+      {/* thumbnail underlay — always painted, so the frame is never pure black
+          while the video mounts/buffers or swaps in on scroll */}
+      {card.thumbUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={card.thumbUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+      ) : null}
       {card.mediaUrl ? (
         <video
           ref={videoRef}
@@ -145,14 +151,11 @@ function CardFace({
           onTimeUpdate={(e) => {
             if (!scrubbing && e.currentTarget.duration) setProgress(e.currentTarget.currentTime / e.currentTarget.duration);
           }}
-          className="h-full w-full object-cover"
+          className="absolute inset-0 h-full w-full object-cover"
         />
-      ) : card.thumbUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={card.thumbUrl} alt="" className="h-full w-full object-cover" />
-      ) : (
+      ) : !card.thumbUrl ? (
         <div className="flex h-full w-full items-center justify-center text-white/40">no media</div>
-      )}
+      ) : null}
 
       <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/70 to-transparent" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
@@ -210,27 +213,27 @@ function CardFace({
         </div>
       </div>
 
-      {/* scrub timeline — drag along the bottom to seek */}
+      {/* scrub timeline — drag along the bar to seek. Lifted off the bottom edge
+          and inset from the sides, with a tall touch zone, so it's easy to grab. */}
       {active && card.mediaUrl ? (
         <div
-          ref={barRef}
           onPointerDown={scrubDown}
           onPointerMove={scrubMove}
           onPointerUp={scrubUp}
           onPointerCancel={scrubUp}
           style={{ touchAction: "none" }}
-          className="absolute inset-x-0 bottom-0 z-30 flex flex-col justify-end px-3 pb-[max(env(safe-area-inset-bottom),10px)] pt-8"
+          className="absolute inset-x-4 bottom-[max(env(safe-area-inset-bottom),16px)] z-30 flex flex-col justify-end pb-6 pt-8"
         >
           {scrubbing ? (
-            <div className="pointer-events-none mb-2 text-center text-[13px] font-semibold tabular-nums text-white drop-shadow">
+            <div className="pointer-events-none mb-3 text-center text-[13px] font-semibold tabular-nums text-white drop-shadow">
               {fmtTime(progress * duration)} <span className="text-white/50">/ {fmtTime(duration)}</span>
             </div>
           ) : null}
-          <div className={"relative w-full rounded-full bg-white/30 transition-all " + (scrubbing ? "h-1.5" : "h-[3px]")}>
+          <div ref={barRef} className={"relative w-full rounded-full bg-white/30 transition-all " + (scrubbing ? "h-1.5" : "h-[3px]")}>
             <div className="h-full rounded-full bg-white" style={{ width: `${progress * 100}%` }} />
             {scrubbing ? (
               <div
-                className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow"
+                className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow"
                 style={{ left: `${progress * 100}%` }}
               />
             ) : null}
@@ -286,6 +289,7 @@ function Feed({
   const [active, setActive] = useState(0);
   const [muted, setMuted] = useState(true);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [briefCard, setBriefCard] = useState<FeedCard | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const savedRef = useRef<Set<string>>(new Set()); // mirror for stable closures
   const recorded = useRef<Set<string>>(new Set()); // assets already dismissed/saved
@@ -368,7 +372,7 @@ function Feed({
         className="h-full w-full snap-y snap-mandatory overflow-y-scroll overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {cards.map((card, idx) => {
-          const near = Math.abs(idx - active) <= 1;
+          const near = Math.abs(idx - active) <= 2;
           const isActive = idx === active;
           const isSaved = savedIds.has(card.id);
           return (
@@ -377,7 +381,7 @@ function Feed({
                 <CardFace card={card} active={isActive} muted={muted} preload="auto" />
               ) : (
                 <div className="h-full w-full bg-black">
-                  {Math.abs(idx - active) <= 3 && card.thumbUrl ? (
+                  {Math.abs(idx - active) <= 4 && card.thumbUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={card.thumbUrl} alt="" className="h-full w-full object-cover opacity-80" />
                   ) : null}
@@ -385,16 +389,22 @@ function Feed({
               )}
 
               {isActive && (
-                <div className="absolute bottom-7 right-3 z-30 flex flex-col items-center gap-5 pb-[env(safe-area-inset-bottom)]">
+                <div className="absolute bottom-[24%] right-3 z-30 flex flex-col items-center gap-5">
+                  <RailButton onClick={() => setMuted((m) => !m)} label={muted ? "Unmute" : "Mute"}>
+                    {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                  </RailButton>
+                  <button onClick={() => setBriefCard(card)} className="flex flex-col items-center gap-1 active:scale-95" aria-label="Creative brief">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm">
+                      <Sparkles size={22} />
+                    </span>
+                    <span className="text-[11px] font-medium text-white/90 drop-shadow">Brief</span>
+                  </button>
                   <button onClick={() => toggleSave(card)} className="flex flex-col items-center gap-1 active:scale-95" aria-label={isSaved ? "Saved" : "Save"}>
                     <span className={"flex h-12 w-12 items-center justify-center rounded-full backdrop-blur-sm transition " + (isSaved ? "bg-white text-black" : "bg-black/40 text-white")}>
                       <Bookmark size={22} className={isSaved ? "fill-current" : ""} />
                     </span>
                     <span className="text-[11px] font-medium text-white/90 drop-shadow">{isSaved ? "Saved" : "Save"}</span>
                   </button>
-                  <RailButton onClick={() => setMuted((m) => !m)} label={muted ? "Unmute" : "Mute"}>
-                    {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-                  </RailButton>
                 </div>
               )}
             </div>
@@ -410,6 +420,9 @@ function Feed({
         <Bookmark size={16} />
         <span className="tabular-nums">{savedCount}</span>
       </button>
+
+      {/* creative brief / brainstorm for the current video */}
+      {briefCard && <BriefSheet card={briefCard} onClose={() => setBriefCard(null)} />}
     </div>
   );
 }
