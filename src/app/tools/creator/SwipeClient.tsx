@@ -63,7 +63,15 @@ function CardFace({
     const attempt = () => {
       const vid = videoRef.current;
       if (cancelled || !vid || !vid.paused) return;
-      vid.play().catch(() => {});
+      vid.muted = muted; // set imperatively — React doesn't reliably apply the muted attribute
+      vid.play().catch(() => {
+        // Unmuted autoplay is blocked until the user interacts. Rather than stall
+        // on the first frame, fall back to muted playback so it always plays;
+        // sound comes on once the browser has a user gesture.
+        if (vid.muted) return;
+        vid.muted = true;
+        vid.play().catch(() => {});
+      });
     };
     attempt();
     const timers = [80, 250, 600, 1200].map((ms) => window.setTimeout(attempt, ms));
@@ -75,7 +83,12 @@ function CardFace({
       v.removeEventListener("canplay", attempt);
       v.removeEventListener("loadeddata", attempt);
     };
-  }, [active]);
+  }, [active, muted]);
+
+  // Live-sync the sound toggle onto the playing element.
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.muted = muted;
+  }, [muted]);
 
   // ── scrub bar: drag to seek ──
   const seekToClientX = (clientX: number) => {
@@ -308,7 +321,7 @@ function Feed({
 }) {
   const [cards] = useState<FeedCard[]>(initialCards);
   const [active, setActive] = useState(0);
-  const [muted, setMuted] = useState(true);
+  const [soundOn, setSoundOn] = useState(true); // default to sound on
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [briefCard, setBriefCard] = useState<FeedCard | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -401,7 +414,7 @@ function Feed({
           return (
             <div key={card.id} data-idx={idx} className="relative h-full w-full snap-start snap-always">
               {near ? (
-                <CardFace card={card} active={isActive} muted={muted} preload="auto" />
+                <CardFace card={card} active={isActive} muted={!soundOn} preload="auto" />
               ) : (
                 <div className="h-full w-full bg-black">
                   {Math.abs(idx - active) <= 4 && card.thumbUrl ? (
@@ -413,8 +426,8 @@ function Feed({
 
               {isActive && (
                 <div className="absolute bottom-[24%] right-3 z-30 flex flex-col items-center gap-5">
-                  <RailButton onClick={() => setMuted((m) => !m)} label={muted ? "Unmute" : "Mute"}>
-                    {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                  <RailButton onClick={() => setSoundOn((s) => !s)} label={soundOn ? "Mute" : "Unmute"}>
+                    {soundOn ? <Volume2 size={20} /> : <VolumeX size={20} />}
                   </RailButton>
                   <button onClick={() => setBriefCard(card)} className="flex flex-col items-center gap-1 active:scale-95" aria-label="Creative brief">
                     <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm">
