@@ -603,7 +603,8 @@ function ChatView({
           }}
           rows={1}
           placeholder="Ask anything about this idea…"
-          className="min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-[14px] leading-snug text-white placeholder:text-white/40 focus:outline-none"
+          // 16px min prevents iOS Safari from auto-zooming the viewport on focus
+          className="min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-[16px] leading-snug text-white placeholder:text-white/40 focus:outline-none"
         />
         <button
           onClick={() => send(input)}
