@@ -230,6 +230,9 @@ export async function ingestReference(opts: IngestOptions = {}): Promise<IngestS
 export interface BulkOptions extends IngestOptions {
   /** How many pages to walk (TrendTrack caps ~100 rows/page). */
   pages?: number;
+  /** First page to pull. Set this above 1 on a top-up run so we don't re-charge
+   *  credits for pages already ingested. */
+  startPage?: number;
   perPage?: number;
   concurrency?: number;
   onProgress?: (done: number, total: number, r: AssetResult) => void;
@@ -243,6 +246,7 @@ export interface BulkOptions extends IngestOptions {
 export async function ingestReferenceBulk(opts: BulkOptions = {}): Promise<IngestSummary> {
   requireStorage();
   const pages = opts.pages ?? 10;
+  const startPage = opts.startPage ?? 1;
   const perPage = opts.perPage ?? 100;
   const concurrency = opts.concurrency ?? 5;
 
@@ -250,7 +254,7 @@ export async function ingestReferenceBulk(opts: BulkOptions = {}): Promise<Inges
   const collected: TrendTrackAd[] = [];
   const seen = new Set<string>();
   let remaining: string | null = null;
-  for (let p = 1; p <= pages; p++) {
+  for (let p = startPage; p < startPage + pages; p++) {
     const res = await queryAds({ ...opts, page: p, limit: perPage });
     remaining = res.remaining;
     if (!res.ads.length) break;

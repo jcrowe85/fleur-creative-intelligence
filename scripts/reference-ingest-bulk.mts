@@ -17,6 +17,8 @@ import { ingestReferenceBulk } from "../src/lib/reference/ingest";
 const pages = Math.max(1, Number(process.argv[2] ?? 10));
 const concurrency = Math.max(1, Math.min(10, Number(process.argv[3] ?? 5)));
 const sortBy = process.argv[4] || "reach";
+const minDaysRunning = process.argv[5] ? Number(process.argv[5]) : undefined;
+const startPage = process.argv[6] ? Number(process.argv[6]) : undefined;
 
 async function main() {
   console.log(`Bulk ingest — up to ${pages} pages × 100, concurrency ${concurrency}, sort=${sortBy}\n`);
@@ -24,9 +26,11 @@ async function main() {
 
   const summary = await ingestReferenceBulk({
     pages,
+    startPage,
     perPage: 100,
     concurrency,
     sortBy,
+    minDaysRunning,
     onProgress: (done, total, r) => {
       const tag = r.error ? `FAIL(${r.error.slice(0, 30)})` : r.freshAnalysis ? "NEW" : "cached";
       if (done % 10 === 0 || r.freshAnalysis || r.error) {
