@@ -17,8 +17,6 @@ import { ingestReference } from "../src/lib/reference/ingest";
 const N = Math.max(1, Math.min(100, Number(process.argv[2] ?? 25)));
 const SEARCH = process.argv[3];
 
-const pct = (n?: number) => (n == null ? "—" : `${Math.round(n * 100)}%`);
-
 async function main() {
   console.log(`Reference ingest — ${N} durable hair-care video ads${SEARCH ? ` (search="${SEARCH}")` : ""}\n`);
 
@@ -32,7 +30,7 @@ async function main() {
     const tag = r.error ? `FAILED: ${r.error}` : `${r.mirrored ? "mirrored" : "—"} · ${r.analyzed ? "classified" : "—"}`;
     console.log(`[${i + 1}/${summary.results.length}] ${r.brand}  (${r.daysRunning ?? "?"}d, reach ${(r.reach ?? 0).toLocaleString()}, ${r.variants ?? "?"} variants)  ${tag}`);
     if (r.analyzed) {
-      console.log(`        pillar=${r.pillar}(${pct(r.pillarConf)})  persona=${r.persona}  hook=${r.hook}  funnel=${r.funnel}  format=${r.format}`);
+      console.log(`        pillar=${r.pillar}  persona=${r.persona}  hook=${r.hook}  funnel=${r.funnel}  format=${r.format}`);
     }
   }
 
