@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowUp, Bookmark, ChevronDown, Clapperboard, Play, Sparkles, TrendingUp, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowUp, Bookmark, ChevronDown, Clapperboard, Play, Sparkles, TrendingUp, Volume2, VolumeX, X } from "lucide-react";
 import { labelFor } from "@/lib/creative/taxonomy";
 import type { ReferenceCard } from "@/lib/reference/lookup";
 import type { FeedCard } from "@/lib/reference/feed";
@@ -805,9 +805,6 @@ function BriefSheet({ card, onClose }: { card: ReferenceCard; onClose: () => voi
                 Brainstorm
               </button>
             </div>
-            <button onClick={close} className="rounded-full bg-white/10 p-1.5" aria-label="Close">
-              <X size={16} />
-            </button>
           </div>
         </div>
         {tab === "brief" ? (
@@ -824,6 +821,72 @@ function BriefSheet({ card, onClose }: { card: ReferenceCard; onClose: () => voi
   );
 }
 
+// ── swipe-right-to-go-back ────────────────────────────────────────────────────
+// The natural mobile motion for leaving a screen. Attach the returned ref to the
+// screen; it follows the finger on a rightward drag and, past a threshold, slides
+// off and calls onBack. Only engages on a clearly-horizontal rightward gesture,
+// so vertical scrolling underneath still works.
+function useSwipeBack(onBack: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [dx, setDx] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const dxRef = useRef(0);
+  const set = (v: number) => {
+    dxRef.current = v;
+    setDx(v);
+  };
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let startX = 0;
+    let startY = 0;
+    let active = false;
+    let decided = false;
+    const ts = (e: TouchEvent) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      active = false;
+      decided = false;
+    };
+    const tm = (e: TouchEvent) => {
+      const dX = e.touches[0].clientX - startX;
+      const dY = e.touches[0].clientY - startY;
+      if (!decided) {
+        if (Math.abs(dX) < 10 && Math.abs(dY) < 10) return;
+        decided = true;
+        active = dX > 0 && Math.abs(dX) > Math.abs(dY) * 1.3; // clearly rightward
+        if (active) setDragging(true);
+      }
+      if (active) {
+        set(Math.max(0, dX));
+        if (e.cancelable) e.preventDefault();
+      }
+    };
+    const te = () => {
+      if (!active) return;
+      active = false;
+      setDragging(false);
+      if (dxRef.current > 90) {
+        set(el.getBoundingClientRect().width);
+        setTimeout(onBack, 200);
+      } else {
+        set(0);
+      }
+    };
+    el.addEventListener("touchstart", ts, { passive: true });
+    el.addEventListener("touchmove", tm, { passive: false });
+    el.addEventListener("touchend", te);
+    el.addEventListener("touchcancel", te);
+    return () => {
+      el.removeEventListener("touchstart", ts);
+      el.removeEventListener("touchmove", tm);
+      el.removeEventListener("touchend", te);
+      el.removeEventListener("touchcancel", te);
+    };
+  }, [onBack]);
+  return { ref, dx, dragging };
+}
+
 // ── saved list (full overlay) ─────────────────────────────────────────────────
 
 function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: number) => void }) {
@@ -836,6 +899,9 @@ function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: 
     setShowBrief(false);
     setPlaying(c);
   };
+
+  const { ref: listRef, dx: listDx, dragging: listDragging } = useSwipeBack(onClose);
+  const { ref: replayRef, dx: replayDx, dragging: replayDragging } = useSwipeBack(() => setPlaying(null));
 
   useEffect(() => {
     fetch("/api/reference/saved")
@@ -861,12 +927,16 @@ function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: 
   };
 
   return (
-    <div className="absolute inset-0 z-40 flex flex-col bg-neutral-950 text-white">
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-4 pt-[calc(env(safe-area-inset-top)+1rem)]">
+    <div className="absolute inset-0 z-40">
+      {/* list screen — swipe right to go back to the feed */}
+      <div
+        ref={listRef}
+        style={{ transform: `translateX(${listDx}px)`, transition: listDragging ? "none" : "transform 0.2s ease-out" }}
+        className="absolute inset-0 flex flex-col bg-neutral-950 text-white"
+      >
+      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-4 pt-[calc(env(safe-area-inset-top)+1rem)]">
         <span className="text-base font-semibold">Your shot list</span>
-        <button onClick={onClose} className="rounded-full bg-white/10 p-2" aria-label="Close">
-          <X size={18} />
-        </button>
+        <span className="text-[12px] text-white/40">— swipe right to go back</span>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
         {cards === null ? (
@@ -916,27 +986,24 @@ function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: 
           </ul>
         )}
       </div>
+      </div>
 
-      {/* fullscreen replay of a saved video */}
+      {/* replay — swipe right to go back to the list */}
       {playing ? (
-        <div className="absolute inset-0 z-50 bg-black">
+        <div
+          ref={replayRef}
+          style={{ transform: `translateX(${replayDx}px)`, transition: replayDragging ? "none" : "transform 0.2s ease-out" }}
+          className="absolute inset-0 z-50 bg-black"
+        >
           <CardFace card={playing} active muted={muted} preload="auto" />
           <button
-            onClick={() => setPlaying(null)}
-            className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-50 rounded-full bg-black/40 p-2 backdrop-blur-sm"
-            aria-label="Back to shot list"
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <button
             onClick={() => setMuted((m) => !m)}
-            className="absolute right-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-50 rounded-full bg-black/40 p-2 backdrop-blur-sm"
+            className="absolute right-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[55] rounded-full bg-black/40 p-2 backdrop-blur-sm"
             aria-label={muted ? "Unmute" : "Mute"}
           >
             {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
 
-          {/* Creative brief — opens the slide-up brief + brainstorm sheet */}
           {!showBrief && (
             <button
               onClick={() => setShowBrief(true)}
