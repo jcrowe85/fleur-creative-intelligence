@@ -257,6 +257,12 @@ model ReferenceAsset {
   attempts  Int     @default(0)
   lastError String?
 
+  // Cached creative framework (the "how to remake this for Fleur" brief). Same
+  // for every creator — it's about the video + Fleur, not the user — so it's
+  // generated once and reused. See lib/reference/framework.ts.
+  framework   Json?
+  frameworkAt DateTime?
+
   analysis ReferenceAnalysis?
   saves    SavedReference[]
 
