@@ -394,16 +394,127 @@ function FrameworkView({ assetId }: { assetId: string }) {
   );
 }
 
+// ── brainstorm chat ───────────────────────────────────────────────────────────
+
+type ChatMsg = { role: "user" | "assistant"; content: string };
+const SUGGESTIONS = ["Write me a full script", "Suggest a different setting", "Make it 15 seconds", "Re-angle for postpartum"];
+
+function ChatView({ assetId }: { assetId: string }) {
+  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [msgs]);
+
+  const send = async (text: string) => {
+    if (!text.trim() || busy) return;
+    const next: ChatMsg[] = [...msgs, { role: "user", content: text.trim() }];
+    setMsgs([...next, { role: "assistant", content: "" }]);
+    setInput("");
+    setBusy(true);
+    try {
+      const res = await fetch("/api/reference/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetId, messages: next }),
+      });
+      if (!res.ok || !res.body) throw new Error("no stream");
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let acc = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += dec.decode(value, { stream: true });
+        setMsgs((m) => {
+          const copy = m.slice();
+          copy[copy.length - 1] = { role: "assistant", content: acc };
+          return copy;
+        });
+      }
+    } catch {
+      setMsgs((m) => {
+        const copy = m.slice();
+        copy[copy.length - 1] = { role: "assistant", content: "Sorry — I hit an error. Try again." };
+        return copy;
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+        {msgs.length === 0 ? (
+          <div className="space-y-3 py-2">
+            <p className="text-[13px] text-white/50">Ask about remaking this for Fleur — a script, a different setting, a re-angle, a shorter cut.</p>
+            <div className="flex flex-wrap gap-2">
+              {SUGGESTIONS.map((s) => (
+                <button key={s} onClick={() => send(s)} className="rounded-full bg-white/10 px-3 py-1.5 text-[12px] text-white/85">
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          msgs.map((m, i) => (
+            <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+              <div
+                className={
+                  "max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-[13px] leading-snug " +
+                  (m.role === "user" ? "bg-white text-black" : "bg-white/10 text-white/90")
+                }
+              >
+                {m.content || (busy ? "…" : "")}
+              </div>
+            </div>
+          ))
+        )}
+        <div ref={endRef} />
+      </div>
+
+      <div className="mt-3 flex items-end gap-2 pt-2">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              send(input);
+            }
+          }}
+          rows={1}
+          placeholder="Ask anything about this idea…"
+          className="max-h-28 flex-1 resize-none rounded-2xl bg-white/10 px-3 py-2 text-[13px] text-white placeholder:text-white/40 focus:outline-none"
+        />
+        <button
+          onClick={() => send(input)}
+          disabled={busy || !input.trim()}
+          className="shrink-0 rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-black disabled:opacity-40"
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── saved list (full overlay) ─────────────────────────────────────────────────
 
 function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: number) => void }) {
   const [cards, setCards] = useState<ReferenceCard[] | null>(null);
   const [playing, setPlaying] = useState<ReferenceCard | null>(null);
   const [showBrief, setShowBrief] = useState(false);
+  const [tab, setTab] = useState<"brief" | "chat">("brief");
   const [muted, setMuted] = useState(false); // reopening a saved video: sound on
 
   const open = (c: ReferenceCard) => {
     setShowBrief(false);
+    setTab("brief");
     setPlaying(c);
   };
 
@@ -515,19 +626,40 @@ function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: 
               Creative brief
             </button>
           ) : (
-            <div className="absolute inset-x-0 bottom-0 z-[60] max-h-[82%] overflow-y-auto rounded-t-2xl bg-neutral-950/95 p-4 pb-10 backdrop-blur-md">
+            <div className="absolute inset-x-0 bottom-0 z-[60] flex h-[85%] flex-col rounded-t-2xl bg-neutral-950/95 p-4 pb-6 backdrop-blur-md">
               <button
                 onClick={() => setShowBrief(false)}
-                className="mx-auto mb-3 block h-1.5 w-10 rounded-full bg-white/25"
-                aria-label="Close brief"
+                className="mx-auto mb-3 block h-1.5 w-10 shrink-0 rounded-full bg-white/25"
+                aria-label="Close"
               />
-              <div className="mb-3 flex items-center justify-between">
-                <span className="text-base font-semibold text-white">Make this for Fleur</span>
+              <div className="mb-3 flex shrink-0 items-center justify-between">
+                <div className="flex gap-1 rounded-full bg-white/10 p-1">
+                  <button
+                    onClick={() => setTab("brief")}
+                    className={"rounded-full px-3 py-1 text-[13px] font-medium " + (tab === "brief" ? "bg-white text-black" : "text-white/70")}
+                  >
+                    Brief
+                  </button>
+                  <button
+                    onClick={() => setTab("chat")}
+                    className={"rounded-full px-3 py-1 text-[13px] font-medium " + (tab === "chat" ? "bg-white text-black" : "text-white/70")}
+                  >
+                    Brainstorm
+                  </button>
+                </div>
                 <button onClick={() => setShowBrief(false)} className="rounded-full bg-white/10 p-1.5" aria-label="Close">
                   <X size={16} />
                 </button>
               </div>
-              <FrameworkView key={playing.id} assetId={playing.id} />
+              {tab === "brief" ? (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <FrameworkView key={playing.id} assetId={playing.id} />
+                </div>
+              ) : (
+                <div className="min-h-0 flex-1">
+                  <ChatView key={playing.id} assetId={playing.id} />
+                </div>
+              )}
             </div>
           )}
         </div>

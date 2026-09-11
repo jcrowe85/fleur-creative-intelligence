@@ -20,6 +20,17 @@ export function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // The creator studio is open: a visitor gets a guest account instead of a
+  // login wall. These paths handle their own auth (guest-aware) — do not bounce
+  // them to /login. The internal dashboard ("/") stays gated below.
+  if (
+    pathname.startsWith("/tools/creator") ||
+    pathname.startsWith("/api/reference") ||
+    pathname.startsWith("/api/auth/guest")
+  ) {
+    return NextResponse.next();
+  }
+
   if (req.cookies.get(AUTH_COOKIE)?.value) {
     return NextResponse.next();
   }
