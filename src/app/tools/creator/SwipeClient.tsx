@@ -16,6 +16,8 @@ const chip = "rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-
 
 // ── fullscreen card face (video + overlaid content) ───────────────────────────
 
+const fmtTime = (s: number) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "0:00");
+
 function CardFace({
   card,
   active,
@@ -28,15 +30,101 @@ function CardFace({
   preload: "auto" | "metadata";
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const [buffering, setBuffering] = useState(true);
+  const [progress, setProgress] = useState(0); // 0..1
+  const [scrubbing, setScrubbing] = useState(false);
+  const [speed, setSpeed] = useState<0.5 | 2 | null>(null);
+  const [duration, setDuration] = useState(0);
   const thin = "thinForFleur" in card && card.thinForFleur;
+
+  // long-press bookkeeping
+  const holdTimer = useRef<number | null>(null);
+  const pressStart = useRef(0);
+  const downPos = useRef({ x: 0, y: 0 });
+  const moved = useRef(false);
 
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     if (active) v.play().catch(() => {});
-    else v.pause();
+    else {
+      v.pause();
+      v.playbackRate = 1;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear speed overlay when this card scrolls out of view
+      setSpeed(null);
+    }
   }, [active]);
+
+  // ── scrub bar: drag to seek ──
+  const seekToClientX = (clientX: number) => {
+    const bar = barRef.current;
+    const v = videoRef.current;
+    if (!bar || !v || !v.duration) return;
+    const rect = bar.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    setProgress(ratio);
+    v.currentTime = ratio * v.duration;
+  };
+  const scrubDown = (e: React.PointerEvent) => {
+    setScrubbing(true);
+    videoRef.current?.pause();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    seekToClientX(e.clientX);
+  };
+  const scrubMove = (e: React.PointerEvent) => {
+    if (scrubbing) seekToClientX(e.clientX);
+  };
+  const scrubUp = () => {
+    if (!scrubbing) return;
+    setScrubbing(false);
+    if (active) videoRef.current?.play().catch(() => {});
+  };
+
+  // ── long-press: hold left = 0.5×, hold right = 2× (release restores) ──
+  const clearHold = () => {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+  };
+  const pressDown = (e: React.PointerEvent) => {
+    pressStart.current = Date.now();
+    downPos.current = { x: e.clientX, y: e.clientY };
+    moved.current = false;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isRight = e.clientX - rect.left > rect.width / 2;
+    holdTimer.current = window.setTimeout(() => {
+      const v = videoRef.current;
+      if (!v) return;
+      const rate = isRight ? 2 : 0.5;
+      v.playbackRate = rate;
+      setSpeed(rate);
+    }, 220);
+  };
+  const pressMove = (e: React.PointerEvent) => {
+    if (speed) return; // in speed mode; stay until release
+    // real movement means a scroll gesture, not a hold — cancel the long-press
+    if (Math.hypot(e.clientX - downPos.current.x, e.clientY - downPos.current.y) > 10) {
+      moved.current = true;
+      clearHold();
+    }
+  };
+  const pressUp = () => {
+    clearHold();
+    const v = videoRef.current;
+    if (speed && v) {
+      v.playbackRate = 1;
+      setSpeed(null);
+      if (active) v.play().catch(() => {});
+      return;
+    }
+    // a quick, still tap toggles play/pause
+    if (v && !moved.current && Date.now() - pressStart.current < 220) {
+      if (v.paused) v.play().catch(() => {});
+      else v.pause();
+    }
+  };
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-black">
@@ -53,6 +141,10 @@ function CardFace({
           onStalled={() => setBuffering(true)}
           onPlaying={() => setBuffering(false)}
           onCanPlay={() => setBuffering(false)}
+          onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+          onTimeUpdate={(e) => {
+            if (!scrubbing && e.currentTarget.duration) setProgress(e.currentTarget.currentTime / e.currentTarget.duration);
+          }}
           className="h-full w-full object-cover"
         />
       ) : card.thumbUrl ? (
@@ -65,10 +157,28 @@ function CardFace({
       <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/70 to-transparent" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
 
+      {/* gesture layer: long-press for speed, tap to pause (active video only) */}
+      {active && card.mediaUrl ? (
+        <div
+          className="absolute inset-0 z-10"
+          onPointerDown={pressDown}
+          onPointerMove={pressMove}
+          onPointerUp={pressUp}
+          onPointerCancel={pressUp}
+        />
+      ) : null}
+
       {/* loading cue while the active video buffers */}
-      {active && buffering && card.mediaUrl ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+      {active && buffering && card.mediaUrl && !scrubbing ? (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
           <div className="h-11 w-11 animate-spin rounded-full border-[3px] border-white/25 border-t-white" />
+        </div>
+      ) : null}
+
+      {/* speed indicator */}
+      {speed ? (
+        <div className="pointer-events-none absolute left-1/2 top-24 z-40 -translate-x-1/2 rounded-full bg-black/60 px-3.5 py-1 text-sm font-bold text-white backdrop-blur-sm">
+          {speed === 2 ? "2× ⏵⏵" : "0.5× ⏴⏴"}
         </div>
       ) : null}
 
@@ -99,6 +209,34 @@ function CardFace({
           <span className="tabular-nums">{card.variants ?? "?"} variants</span>
         </div>
       </div>
+
+      {/* scrub timeline — drag along the bottom to seek */}
+      {active && card.mediaUrl ? (
+        <div
+          ref={barRef}
+          onPointerDown={scrubDown}
+          onPointerMove={scrubMove}
+          onPointerUp={scrubUp}
+          onPointerCancel={scrubUp}
+          style={{ touchAction: "none" }}
+          className="absolute inset-x-0 bottom-0 z-30 flex flex-col justify-end px-3 pb-[max(env(safe-area-inset-bottom),10px)] pt-8"
+        >
+          {scrubbing ? (
+            <div className="pointer-events-none mb-2 text-center text-[13px] font-semibold tabular-nums text-white drop-shadow">
+              {fmtTime(progress * duration)} <span className="text-white/50">/ {fmtTime(duration)}</span>
+            </div>
+          ) : null}
+          <div className={"relative w-full rounded-full bg-white/30 transition-all " + (scrubbing ? "h-1.5" : "h-[3px]")}>
+            <div className="h-full rounded-full bg-white" style={{ width: `${progress * 100}%` }} />
+            {scrubbing ? (
+              <div
+                className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow"
+                style={{ left: `${progress * 100}%` }}
+              />
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
