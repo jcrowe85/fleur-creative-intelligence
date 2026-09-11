@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bookmark, Clapperboard, Heart, TrendingUp, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowLeft, Bookmark, Clapperboard, Heart, Play, TrendingUp, Volume2, VolumeX, X } from "lucide-react";
 import { labelFor } from "@/lib/creative/taxonomy";
 import type { ReferenceCard } from "@/lib/reference/lookup";
 import type { FeedCard } from "@/lib/reference/feed";
@@ -307,6 +307,8 @@ function Stamp({ show, kind }: { show: boolean; kind: "save" | "skip" }) {
 
 function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: number) => void }) {
   const [cards, setCards] = useState<ReferenceCard[] | null>(null);
+  const [playing, setPlaying] = useState<ReferenceCard | null>(null);
+  const [muted, setMuted] = useState(false); // reopening a saved video: sound on
 
   useEffect(() => {
     fetch("/api/reference/saved")
@@ -348,18 +350,32 @@ function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: 
           <ul className="space-y-3">
             {cards.map((c) => (
               <li key={c.id} className="flex gap-3 rounded-xl bg-white/5 p-3 ring-1 ring-white/10">
-                <div className="h-24 w-16 shrink-0 overflow-hidden rounded-lg bg-black">
+                <button
+                  onClick={() => setPlaying(c)}
+                  className="group relative h-24 w-16 shrink-0 overflow-hidden rounded-lg bg-black"
+                  aria-label="Play video"
+                >
                   {c.thumbUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={c.thumbUrl} alt="" className="h-full w-full object-cover" />
                   ) : null}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold">{c.brand}</span>
-                    <button onClick={() => remove(c.id)} className="text-white/50 hover:text-red-400" aria-label="Remove">
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/25">
+                    <Play size={20} className="fill-white text-white drop-shadow" />
+                  </span>
+                </button>
+                <button onClick={() => setPlaying(c)} className="min-w-0 flex-1 text-left" aria-label="Open video">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-semibold">{c.brand}</span>
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        remove(c.id);
+                      }}
+                      className="shrink-0 text-white/50 hover:text-red-400"
+                      aria-label="Remove"
+                    >
                       <X size={16} />
-                    </button>
+                    </span>
                   </div>
                   {c.hookText ? <p className="mt-0.5 line-clamp-2 text-[13px] text-white/60">“{c.hookText}”</p> : null}
                   <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-white/50">
@@ -367,12 +383,33 @@ function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: 
                     <span className="tabular-nums">· {c.daysRunning ?? "?"}d</span>
                     <span className="tabular-nums">· {compact(c.reach)} reach</span>
                   </div>
-                </div>
+                </button>
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      {/* fullscreen replay of a saved video */}
+      {playing ? (
+        <div className="absolute inset-0 z-50 bg-black">
+          <CardFace card={playing} active muted={muted} preload="auto" />
+          <button
+            onClick={() => setPlaying(null)}
+            className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-50 rounded-full bg-black/40 p-2 backdrop-blur-sm"
+            aria-label="Back to shot list"
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <button
+            onClick={() => setMuted((m) => !m)}
+            className="absolute right-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-50 rounded-full bg-black/40 p-2 backdrop-blur-sm"
+            aria-label={muted ? "Unmute" : "Mute"}
+          >
+            {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
