@@ -44,22 +44,37 @@ function CardFace({
   const downPos = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
 
-  // Kick off (or retry) playback when this is the active video and it's ready.
-  const tryPlay = () => {
-    const v = videoRef.current;
-    if (active && v && v.paused) v.play().catch(() => {});
-  };
-
+  // Reliably play the active video. Programmatic play() can silently fail when
+  // it races a pause() during a fast scroll, when the element isn't ready yet,
+  // or when a preloaded video already fired `canplay` off-screen (so it won't
+  // fire again). Retry on a short schedule and on readiness events until it's
+  // actually playing — no tap required.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    if (active) v.play().catch(() => {});
-    else {
+    if (!active) {
       v.pause();
       v.playbackRate = 1;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- clear speed overlay when this card scrolls out of view
       setSpeed(null);
+      return;
     }
+    let cancelled = false;
+    const attempt = () => {
+      const vid = videoRef.current;
+      if (cancelled || !vid || !vid.paused) return;
+      vid.play().catch(() => {});
+    };
+    attempt();
+    const timers = [80, 250, 600, 1200].map((ms) => window.setTimeout(attempt, ms));
+    v.addEventListener("canplay", attempt);
+    v.addEventListener("loadeddata", attempt);
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+      v.removeEventListener("canplay", attempt);
+      v.removeEventListener("loadeddata", attempt);
+    };
   }, [active]);
 
   // ── scrub bar: drag to seek ──
@@ -152,11 +167,7 @@ function CardFace({
           onWaiting={() => setWaiting(true)}
           onStalled={() => setWaiting(true)}
           onPlaying={() => setWaiting(false)}
-          onCanPlay={() => {
-            setWaiting(false);
-            tryPlay();
-          }}
-          onLoadedData={tryPlay}
+          onCanPlay={() => setWaiting(false)}
           onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
           onTimeUpdate={(e) => {
             if (!scrubbing && e.currentTarget.duration) setProgress(e.currentTarget.currentTime / e.currentTarget.duration);
@@ -382,7 +393,9 @@ function Feed({
         className="h-full w-full snap-y snap-mandatory overflow-y-scroll overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {cards.map((card, idx) => {
-          const near = Math.abs(idx - active) <= 2;
+          // Keep few videos mounted at once — iOS refuses to play a new one when
+          // too many are decoding. Active ± 1 covers the next scroll smoothly.
+          const near = Math.abs(idx - active) <= 1;
           const isActive = idx === active;
           const isSaved = savedIds.has(card.id);
           return (
