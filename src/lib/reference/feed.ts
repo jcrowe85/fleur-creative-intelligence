@@ -18,7 +18,7 @@
 import { db } from "@/lib/db";
 import { buildPortfolio } from "@/lib/creative/portfolio";
 import { actionedAssetIds } from "./saves";
-import { toCard, type AssetWithAnalysis, type ReferenceCard } from "./lookup";
+import { type ReferenceCard } from "./lookup";
 import { AFFINITY_ATTRS, AFFINITY_SMOOTHING, LEARNED_WEIGHT, seedAffinity } from "./capability";
 
 export interface FeedCard extends ReferenceCard {
@@ -33,6 +33,49 @@ const W_EXPLORE = 0.4;
 
 const attrValues = (an: { production: string; format: string; pillar: string; hook: string; persona: string }) =>
   ({ production: an.production, format: an.format, pillar: an.pillar, hook: an.hook, persona: an.persona }) as Record<string, string>;
+
+// Fleur's gap weights are the same for every creator and change only when the
+// portfolio is re-synced (hourly cron), so cache them — running buildPortfolio
+// on every feed request was adding ~2s to the page's TTFB.
+let gapCache: { at: number; weights: Map<string, number>; max: number } | null = null;
+const GAP_TTL_MS = 15 * 60 * 1000;
+
+async function pillarWeights(): Promise<{ weights: Map<string, number>; max: number }> {
+  if (gapCache && Date.now() - gapCache.at < GAP_TTL_MS) return gapCache;
+  const portfolio = await buildPortfolio();
+  const weights = new Map<string, number>();
+  for (const g of portfolio.gaps) weights.set(g.pillar, (weights.get(g.pillar) ?? 0) + g.priority);
+  gapCache = { at: Date.now(), weights, max: Math.max(1, ...weights.values()) };
+  return gapCache;
+}
+
+// Only the columns the feed needs — critically NOT `raw` (the full TrendTrack ad
+// payload), which is large and dominated the query time across ~1000 rows.
+const FEED_SELECT = {
+  id: true,
+  ttAdId: true,
+  advertiserName: true,
+  mediaType: true,
+  mediaUrl: true,
+  thumbUrl: true,
+  durationSec: true,
+  daysRunning: true,
+  reach: true,
+  variants: true,
+  reachDelta7d: true,
+  analysis: {
+    select: {
+      pillar: true,
+      persona: true,
+      hook: true,
+      funnel: true,
+      format: true,
+      production: true,
+      hookText: true,
+      critique: true,
+    },
+  },
+} as const;
 
 /** Per-attribute-value preference learned from this creator's swipe history. */
 async function learnedAffinity(userId: string): Promise<(attr: string, value: string) => number> {
@@ -69,35 +112,49 @@ async function learnedAffinity(userId: string): Promise<(attr: string, value: st
 }
 
 export async function buildFeed(userId: string, limit = 60): Promise<FeedCard[]> {
-  // How badly Fleur needs each pillar (summed gap priority), normalised 0..1.
-  const portfolio = await buildPortfolio();
-  const pillarWeight = new Map<string, number>();
-  for (const g of portfolio.gaps) pillarWeight.set(g.pillar, (pillarWeight.get(g.pillar) ?? 0) + g.priority);
-  const maxGap = Math.max(1, ...pillarWeight.values());
-
-  const [actioned, learned, rows] = await Promise.all([
+  const [{ weights: pillarWeight, max: maxGap }, actioned, learned, rows] = await Promise.all([
+    pillarWeights(),
     actionedAssetIds(userId),
     learnedAffinity(userId),
     db.referenceAsset.findMany({
       where: { mediaUrl: { not: null }, analysis: { isNot: null } },
-      include: { analysis: true },
+      select: FEED_SELECT,
     }),
   ]);
 
   // Score every un-swiped, playable card.
   const scored: { card: FeedCard; score: number }[] = [];
   for (const r of rows) {
-    if (actioned.has(r.id)) continue;
-    const an = r.analysis!;
-    const base = toCard(r as AssetWithAnalysis);
-    const card: FeedCard = { ...base, thinForFleur: pillarWeight.has(base.pillar) };
+    if (actioned.has(r.id) || !r.analysis) continue;
+    const an = r.analysis;
+    const card: FeedCard = {
+      id: r.id,
+      ttAdId: r.ttAdId,
+      brand: r.advertiserName ?? "(unknown)",
+      mediaType: r.mediaType,
+      mediaUrl: r.mediaUrl,
+      thumbUrl: r.thumbUrl,
+      durationSec: r.durationSec,
+      daysRunning: r.daysRunning,
+      reach: r.reach,
+      variants: r.variants,
+      reachDelta7d: r.reachDelta7d,
+      pillar: an.pillar,
+      persona: an.persona,
+      hook: an.hook,
+      funnel: an.funnel,
+      format: an.format,
+      hookText: an.hookText,
+      critique: an.critique,
+      thinForFleur: pillarWeight.has(an.pillar),
+    };
 
     const vals = attrValues(an);
     let affinity = 0;
     for (const a of AFFINITY_ATTRS) {
       affinity += seedAffinity(a, vals[a]) + LEARNED_WEIGHT * learned(a, vals[a]);
     }
-    const gapNorm = (pillarWeight.get(base.pillar) ?? 0) / maxGap;
+    const gapNorm = (pillarWeight.get(an.pillar) ?? 0) / maxGap;
     const score = W_GAP * gapNorm + W_AFFINITY * affinity + W_EXPLORE * Math.random();
     scored.push({ card, score });
   }
