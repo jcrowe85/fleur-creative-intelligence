@@ -60,9 +60,20 @@ async function main() {
   const skipped = 0; // re-runs skip naturally: shrunk files drop below the query threshold
   await pool(targets, concurrency, async (a) => {
     try {
-      const r = await fetch(a.mediaUrl!);
-      if (!r.ok) throw new Error(`fetch ${r.status}`);
-      const before = Buffer.from(await r.arrayBuffer());
+      // Retry the download — under high concurrency Supabase occasionally drops a
+      // connection ("fetch failed"); a couple of backed-off retries recover it.
+      let before: Buffer | null = null;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const r = await fetch(a.mediaUrl!);
+          if (!r.ok) throw new Error(`fetch ${r.status}`);
+          before = Buffer.from(await r.arrayBuffer());
+          break;
+        } catch (e) {
+          if (attempt >= 3) throw e;
+          await new Promise((res) => setTimeout(res, 600 * (attempt + 1)));
+        }
+      }
       const heavy = before.byteLength / 1e6 > downscaleAboveMB;
       const after = heavy ? await downscale720p(before) : await faststartRemux(before);
       // Re-upload to the same path; storage.ts stamps the cache-control header.
