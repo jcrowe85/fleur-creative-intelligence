@@ -1,8 +1,16 @@
 import { cache } from "react";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { AUTH_COOKIE } from "@/lib/session";
+
+/** The session token from either the cookie (web) or an Authorization: Bearer
+ *  header (the native app). Lets the same API serve both clients. */
+async function sessionToken(): Promise<string | null> {
+  const auth = (await headers()).get("authorization");
+  if (auth?.startsWith("Bearer ")) return auth.slice(7).trim() || null;
+  return (await cookies()).get(AUTH_COOKIE)?.value ?? null;
+}
 
 export interface SessionUser {
   id: string;
@@ -53,7 +61,7 @@ export interface CreatorUser extends SessionUser {
 }
 
 export const getCreatorUser = cache(async (): Promise<CreatorUser | null> => {
-  const token = (await cookies()).get(AUTH_COOKIE)?.value;
+  const token = await sessionToken();
   if (!token) return null;
   const session = await db.session.findUnique({
     where: { token },

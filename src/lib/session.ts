@@ -70,6 +70,19 @@ export async function createSession(userId: string): Promise<string> {
   return token;
 }
 
+/**
+ * Create a DB session and return its opaque token WITHOUT setting a cookie — for
+ * native clients (the Expo app) that store the token and send it as
+ * `Authorization: Bearer <token>`. Web keeps using createSession (cookie).
+ */
+export async function createSessionToken(userId: string): Promise<string> {
+  const token = newToken();
+  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+  await db.session.create({ data: { token, userId, expiresAt } });
+  db.session.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => {});
+  return token;
+}
+
 export async function destroySession(): Promise<void> {
   const jar = await cookies();
   const token = jar.get(AUTH_COOKIE)?.value;
