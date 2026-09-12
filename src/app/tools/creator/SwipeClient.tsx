@@ -378,7 +378,10 @@ function Feed({
     activeRef.current = active;
   }, [active]);
   const loadingMore = useRef(false);
-  const lastLoadTs = useRef(0);
+  // Seed with mount time so the re-rank effect's throttle skips the initial mount —
+  // the server already ranked the initial cards, and a refetch on load just competes
+  // with the first video loading. Re-ranking kicks in once the user starts moving.
+  const lastLoadTs = useRef(Date.now());
   const onOpenSavedRef = useRef(onOpenSaved);
   useEffect(() => {
     onOpenSavedRef.current = onOpenSaved;
