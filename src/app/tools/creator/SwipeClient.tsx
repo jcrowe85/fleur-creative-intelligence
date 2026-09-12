@@ -69,10 +69,10 @@ function CardFace({
     // effect is torn down (cancelled) the instant active changes, so fly-by cards
     // never begin playing/decoding, which is what caused the current video to stutter.
     const readyAt = Date.now() + 80;
-    const ensure = () => {
-      const vid = videoRef.current;
-      if (cancelled || !vid || scrubbingRef.current || !vid.paused) return;
-      if (Date.now() < readyAt) return;
+    let lastT = -1;
+    let lastRs = -1;
+    let stalls = 0;
+    const play = (vid: HTMLVideoElement) =>
       vid.play().catch(() => {
         // The only thing ever blocked is an unmuted start — force muted and it
         // always plays. The audio layer restores sound afterward.
@@ -81,6 +81,32 @@ function CardFace({
           vid.play().catch(() => {});
         }
       });
+    const ensure = () => {
+      const vid = videoRef.current;
+      if (cancelled || !vid || scrubbingRef.current) return;
+      if (Date.now() < readyAt) return;
+      if (vid.paused) {
+        stalls = 0;
+        play(vid);
+      } else if (vid.readyState < 3 && vid.currentTime < 0.5) {
+        // Playing but frozen at the very start — the intermittent "first video won't
+        // start on load" stall: play() was accepted (not paused) yet buffering never
+        // progressed, and a paused-only watchdog would never rescue it. If both the
+        // time and readyState stay frozen for ~3 ticks, re-kick the pipeline.
+        if (vid.currentTime === lastT && vid.readyState === lastRs) {
+          if (++stalls >= 3) {
+            stalls = 0;
+            vid.load();
+            play(vid);
+          }
+        } else {
+          stalls = 0;
+        }
+      } else {
+        stalls = 0;
+      }
+      lastT = vid.currentTime;
+      lastRs = vid.readyState;
     };
     const kickoff = window.setTimeout(ensure, 90);
     const id = window.setInterval(ensure, 200);
