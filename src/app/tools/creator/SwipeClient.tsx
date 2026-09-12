@@ -70,43 +70,46 @@ function CardFace({
     // never begin playing/decoding, which is what caused the current video to stutter.
     const readyAt = Date.now() + 80;
     let lastT = -1;
-    let lastRs = -1;
     let stalls = 0;
-    const play = (vid: HTMLVideoElement) =>
-      vid.play().catch(() => {
-        // The only thing ever blocked is an unmuted start — force muted and it
-        // always plays. The audio layer restores sound afterward.
-        if (!vid.muted) {
-          vid.muted = true;
-          vid.play().catch(() => {});
-        }
-      });
+    // GUARANTEE playback — this must never leave the active video paused, tap or not.
     const ensure = () => {
       const vid = videoRef.current;
       if (cancelled || !vid || scrubbingRef.current) return;
       if (Date.now() < readyAt) return;
+      const frozen = vid.currentTime === lastT;
+      lastT = vid.currentTime;
+
       if (vid.paused) {
-        stalls = 0;
-        play(vid);
-      } else if (vid.readyState < 3 && vid.currentTime < 0.5) {
-        // Playing but frozen at the very start — the intermittent "first video won't
-        // start on load" stall: play() was accepted (not paused) yet buffering never
-        // progressed, and a paused-only watchdog would never rescue it. If both the
-        // time and readyState stay frozen for ~3 ticks, re-kick the pipeline.
-        if (vid.currentTime === lastT && vid.readyState === lastRs) {
-          if (++stalls >= 3) {
-            stalls = 0;
-            vid.load();
-            play(vid);
-          }
-        } else {
+        // 1) Try as-is (honouring the sound setting).
+        vid.play().catch(() => {});
+        if (!vid.paused) { stalls = 0; return; }
+        // 2) Muted playback is ALWAYS permitted (no gesture, no autoplay block) —
+        //    force it so the video never sits stalled waiting for a tap. Sound is
+        //    layered back on separately and can never re-stall it.
+        vid.muted = true;
+        vid.play().catch(() => {});
+        if (!vid.paused) { stalls = 0; return; }
+        // 3) Still wedged after a couple of ticks — iOS ran out of decode sessions
+        //    or the pipeline is stuck. Re-acquire it with load() and play muted.
+        if (++stalls >= 2) {
           stalls = 0;
+          vid.load();
+          vid.muted = true;
+          vid.play().catch(() => {});
+        }
+        return;
+      }
+
+      // Playing but frozen (buffering wedged) for several ticks — re-kick.
+      if (vid.readyState < 3 && frozen) {
+        if (++stalls >= 4) {
+          stalls = 0;
+          vid.load();
+          vid.play().catch(() => {});
         }
       } else {
         stalls = 0;
       }
-      lastT = vid.currentTime;
-      lastRs = vid.readyState;
     };
     const kickoff = window.setTimeout(ensure, 90);
     const id = window.setInterval(ensure, 200);
@@ -132,23 +135,41 @@ function CardFace({
     const v = videoRef.current;
     if (!v) return;
     let cancelled = false;
+    let gaveUp = false;
+    let unmuteAt = 0;
     const apply = () => {
       const vid = videoRef.current;
-      if (cancelled || !vid) return;
-      // Mute immediately; unmute only once it's actually playing.
-      if (vid.muted !== muted && (muted || !vid.paused)) vid.muted = muted;
+      if (cancelled || !vid || gaveUp) return;
+      if (muted) {
+        if (!vid.muted) vid.muted = true; // muting is always safe
+      } else if (vid.muted && !vid.paused) {
+        // Unmute only a playing element. This runs outside a gesture, so iOS MAY
+        // refuse by pausing — onPause handles that below.
+        unmuteAt = Date.now();
+        vid.muted = false;
+      }
+    };
+    const onPause = () => {
+      // Paused right after we unmuted → iOS refused sound without a gesture. Revert
+      // to muted and STOP trying for this card, so we never oscillate the watchdog
+      // into a stall. Sound still comes on via the feed's gesture reconciler.
+      if (!muted && Date.now() - unmuteAt < 600) {
+        const vid = videoRef.current;
+        if (vid) vid.muted = true;
+        gaveUp = true;
+      }
     };
     apply();
-    const timers = [100, 300, 600, 1000, 1500].map((ms) => window.setTimeout(apply, ms));
+    const timers = [120, 350, 700, 1200].map((ms) => window.setTimeout(apply, ms));
     v.addEventListener("playing", apply);
     v.addEventListener("timeupdate", apply);
-    v.addEventListener("canplay", apply);
+    v.addEventListener("pause", onPause);
     return () => {
       cancelled = true;
       timers.forEach(clearTimeout);
       v.removeEventListener("playing", apply);
       v.removeEventListener("timeupdate", apply);
-      v.removeEventListener("canplay", apply);
+      v.removeEventListener("pause", onPause);
     };
   }, [active, muted]);
 
