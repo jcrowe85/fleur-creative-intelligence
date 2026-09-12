@@ -359,6 +359,7 @@ function Feed({
   initialCards,
   savedCount,
   savedIds,
+  suspended,
   onSave,
   onUnsave,
   onOpenSaved,
@@ -366,6 +367,7 @@ function Feed({
   initialCards: FeedCard[];
   savedCount: number;
   savedIds: Set<string>;
+  suspended: boolean; // saved overlay is open — pause the feed video behind it
   onSave: (card: FeedCard) => void;
   onUnsave: (id: string) => void;
   onOpenSaved: () => void;
@@ -558,7 +560,7 @@ function Feed({
                 // Only the active card and the next one fully preload; the previous
                 // uses light metadata. Three simultaneous full downloads starve the
                 // active video's buffer and cause it to stall.
-                <CardFace card={card} active={isActive} muted={!soundOn} preload={idx >= active ? "auto" : "metadata"} />
+                <CardFace card={card} active={isActive && !suspended} muted={!soundOn} preload={idx >= active ? "auto" : "metadata"} />
               ) : (
                 <div className="h-full w-full bg-black">
                   {Math.abs(idx - active) <= 4 && card.thumbUrl ? (
@@ -1275,6 +1277,7 @@ export default function SwipeClient({
           initialCards={initialCards}
           savedCount={savedCards.length}
           savedIds={savedIds}
+          suspended={showSaved}
           onSave={onSave}
           onUnsave={onUnsave}
           onOpenSaved={() => setShowSaved(true)}
