@@ -187,16 +187,23 @@ export async function buildFeed(userId: string, limit = 60): Promise<FeedCard[]>
 
   scored.sort((a, b) => b.score - a.score);
 
-  // Greedy interleave: take the highest-scoring card whose pillar isn't the one
+  // Greedy interleave: take the highest-scoring card that doesn't repeat the card
   // we just emitted, so the scroll stays varied without abandoning the ranking.
+  // We avoid back-to-back same *pillar* AND same *persona* — persona tracks the
+  // on-screen subject, so diversifying it is what breaks up runs of similar-looking
+  // videos (the main cause of "endless back-to-back" clusters). Fall back to
+  // pillar-only, then to score order, when nothing better is left.
   const out: FeedCard[] = [];
-  let last: string | null = null;
+  let lastPillar: string | null = null;
+  let lastPersona: string | null = null;
   while (out.length < limit && scored.length) {
-    let idx = scored.findIndex((s) => s.card.pillar !== last);
+    let idx = scored.findIndex((s) => s.card.pillar !== lastPillar && s.card.persona !== lastPersona);
+    if (idx === -1) idx = scored.findIndex((s) => s.card.pillar !== lastPillar);
     if (idx === -1) idx = 0; // only same-pillar cards remain
     const [picked] = scored.splice(idx, 1);
     out.push(picked.card);
-    last = picked.card.pillar;
+    lastPillar = picked.card.pillar;
+    lastPersona = picked.card.persona;
   }
   return out;
 }

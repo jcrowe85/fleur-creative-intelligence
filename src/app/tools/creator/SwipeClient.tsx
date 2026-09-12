@@ -319,7 +319,7 @@ function Feed({
   onSavedChange: (delta: number) => void;
   onOpenSaved: () => void;
 }) {
-  const [cards] = useState<FeedCard[]>(initialCards);
+  const [cards, setCards] = useState<FeedCard[]>(initialCards);
   const [active, setActive] = useState(0);
   const [soundOn, setSoundOn] = useState(false); // muted on start; tap the sound button to unmute
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
@@ -328,6 +328,8 @@ function Feed({
   const savedRef = useRef<Set<string>>(new Set()); // mirror for stable closures
   const recorded = useRef<Set<string>>(new Set()); // assets already dismissed/saved
   const prevActive = useRef(0);
+  const loadingMore = useRef(false);
+  const lastLoadTs = useRef(0);
 
   // Track which video is in view (the active one plays).
   useEffect(() => {
@@ -367,6 +369,38 @@ function Feed({
     }
     prevActive.current = active;
   }, [active, cards]);
+
+  // Live re-ranking + infinite scroll. The initial 60 cards are ranked at page
+  // load, so without this, swipes made this session (save = more like it, skip =
+  // less) wouldn't change what comes next until a cold reload. As the creator
+  // nears the end, refetch buildFeed — which now sees this session's swipes and
+  // excludes everything already actioned — and append the fresh, re-ranked cards.
+  const loadMore = useCallback(async () => {
+    if (loadingMore.current) return;
+    if (Date.now() - lastLoadTs.current < 4000) return; // throttle
+    loadingMore.current = true;
+    lastLoadTs.current = Date.now();
+    try {
+      const res = await fetch("/api/reference/feed");
+      const data = (await res.json().catch(() => ({}))) as { cards?: FeedCard[] };
+      const incoming = data.cards ?? [];
+      setCards((prev) => {
+        const have = new Set(prev.map((c) => c.id));
+        const fresh = incoming.filter(
+          (c) => !have.has(c.id) && !recorded.current.has(c.id) && !savedRef.current.has(c.id),
+        );
+        return fresh.length ? [...prev, ...fresh] : prev;
+      });
+    } catch {
+      // ignore — retried on the next threshold crossing
+    } finally {
+      loadingMore.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (active >= cards.length - 8) loadMore();
+  }, [active, cards.length, loadMore]);
 
   const toggleSave = (card: FeedCard) => {
     setSavedIds((prev) => {
