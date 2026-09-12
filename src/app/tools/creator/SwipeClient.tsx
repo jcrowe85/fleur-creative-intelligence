@@ -175,11 +175,14 @@ function CardFace({
           playsInline
           preload={preload}
           onWaiting={() => setWaiting(true)}
-          onStalled={() => setWaiting(true)}
           onPlaying={() => setWaiting(false)}
           onCanPlay={() => setWaiting(false)}
           onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
           onTimeUpdate={(e) => {
+            // Playback is advancing, so we're not buffering — clear any spinner.
+            // (A fully-downloaded video fires spurious `waiting`/`stalled` when its
+            // connection goes idle; `playing`/`canplay` won't re-fire to clear it.)
+            setWaiting(false);
             if (!scrubbing && e.currentTarget.duration) setProgress(e.currentTarget.currentTime / e.currentTarget.duration);
           }}
           className="absolute inset-0 h-full w-full object-cover"
