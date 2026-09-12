@@ -17,6 +17,7 @@ import { db } from "../src/lib/db";
 import { storageConfigured, uploadToStorage } from "../src/lib/reference/storage";
 import { downscale720p, faststartRemux } from "../src/lib/reference/transcode";
 
+const DONE = "opt-done"; // marker written to lastError once a video has been optimized
 const concurrency = Math.max(1, Math.min(8, Number(process.argv[2] ?? 4)));
 // Files larger than this get a full 720p re-encode; everything gets faststart.
 const downscaleAboveMB = process.argv[3] ? Number(process.argv[3]) : Infinity;
@@ -42,6 +43,10 @@ async function main() {
   const targets = await db.referenceAsset.findMany({
     where: {
       mediaUrl: { not: null },
+      // Skip ones already downscaled in a prior pass (marked below), so re-runs only
+      // retry stragglers/failures and never re-encode a finished (long) video. Note:
+      // `{ not: DONE }` alone drops NULL lastError in SQL, so include NULL explicitly.
+      OR: [{ lastError: null }, { lastError: { not: DONE } }],
       ...(Number.isFinite(downscaleAboveMB) ? { mediaBytes: { gt: Math.round(downscaleAboveMB * 1e6) } } : {}),
     },
     orderBy: { mediaBytes: "desc" },
@@ -70,15 +75,15 @@ async function main() {
           before = Buffer.from(await r.arrayBuffer());
           break;
         } catch (e) {
-          if (attempt >= 3) throw e;
-          await new Promise((res) => setTimeout(res, 600 * (attempt + 1)));
+          if (attempt >= 6) throw e;
+          await new Promise((res) => setTimeout(res, 800 * (attempt + 1))); // up to ~5s backoff
         }
       }
       const heavy = before.byteLength / 1e6 > downscaleAboveMB;
       const after = heavy ? await downscale720p(before) : await faststartRemux(before);
       // Re-upload to the same path; storage.ts stamps the cache-control header.
       await uploadToStorage(`video/${a.ttAdId}.mp4`, after, "video/mp4");
-      await db.referenceAsset.update({ where: { id: a.id }, data: { mediaBytes: after.byteLength } });
+      await db.referenceAsset.update({ where: { id: a.id }, data: { mediaBytes: after.byteLength, lastError: DONE } });
       savedBytes += before.byteLength - after.byteLength;
       done += 1;
       if (done % 20 === 0)
@@ -90,10 +95,13 @@ async function main() {
   });
 
   console.log(`\nDone: optimised ${done}, skipped ${skipped} (already good), failed ${failed}. Reclaimed ~${(savedBytes / 1e9).toFixed(2)}GB.`);
+  return failed;
 }
 
 main()
-  .then(() => process.exit(0))
+  // Exit non-zero if anything failed so the wrapper loop re-runs and retries the
+  // stragglers (finished videos are marked, so a re-run is cheap). Clean pass = 0.
+  .then((failed) => process.exit(failed > 0 ? 1 : 0))
   .catch((e) => {
     console.error(e);
     process.exit(1);
