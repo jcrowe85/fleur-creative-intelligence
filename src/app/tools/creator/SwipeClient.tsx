@@ -61,35 +61,15 @@ function CardFace({
     let cancelled = false;
     const attempt = () => {
       const vid = videoRef.current;
-      if (cancelled || !vid) return;
-      // Play with sound only if the page already has user activation. Before the
-      // first gesture the browser forces muted autoplay, so start muted and let a
-      // later attempt (once the user has scrolled/tapped) turn sound on.
-      // `hasBeenActive` is sticky — true forever after the first gesture — so
-      // every card after that plays unmuted directly, no per-card tap needed.
-      const activated =
-        typeof navigator !== "undefined" && "userActivation" in navigator
-          ? navigator.userActivation.hasBeenActive
-          : false;
-      const startMuted = muted || !activated;
-      if (vid.paused) {
-        vid.muted = startMuted; // set imperatively — React doesn't reliably apply the muted attribute
-        vid.play().catch((err: DOMException) => {
-          // Only the autoplay policy (NotAllowedError) should force muting. Other
-          // rejections — interrupted by a scroll/pause during fast scrolling — are
-          // transient and retried by the schedule; muting on those is what killed
-          // the sound on the next card.
-          if (err?.name === "NotAllowedError" && !vid.muted) {
-            vid.muted = true;
-            vid.play().catch(() => {});
-          }
-        });
-      } else if (vid.muted !== startMuted) {
-        // Already playing but the mute state is stale — e.g. it began muted before
-        // the user interacted and we now have activation. Correct it so sound
-        // comes on without a tap.
-        vid.muted = startMuted;
-      }
+      if (cancelled || !vid || !vid.paused) return;
+      vid.muted = muted; // set imperatively — React doesn't reliably apply the muted attribute
+      vid.play().catch(() => {
+        // Unmuted autoplay is blocked until the user interacts. Rather than stall
+        // on the first frame, fall back to muted playback so it always plays.
+        if (vid.muted) return;
+        vid.muted = true;
+        vid.play().catch(() => {});
+      });
     };
     attempt();
     const timers = [80, 250, 600, 1200].map((ms) => window.setTimeout(attempt, ms));
@@ -338,21 +318,13 @@ function Feed({
 }) {
   const [cards] = useState<FeedCard[]>(initialCards);
   const [active, setActive] = useState(0);
-  const [soundOn, setSoundOn] = useState(true); // default to sound on
+  const [soundOn, setSoundOn] = useState(false); // muted on start; tap the sound button to unmute
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [briefCard, setBriefCard] = useState<FeedCard | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const savedRef = useRef<Set<string>>(new Set()); // mirror for stable closures
   const recorded = useRef<Set<string>>(new Set()); // assets already dismissed/saved
   const prevActive = useRef(0);
-  const soundOnRef = useRef(soundOn);
-  useEffect(() => {
-    soundOnRef.current = soundOn;
-  }, [soundOn]);
-  const activeRef = useRef(active);
-  useEffect(() => {
-    activeRef.current = active;
-  }, [active]);
 
   // Track which video is in view (the active one plays).
   useEffect(() => {
@@ -371,45 +343,6 @@ function Feed({
     root.querySelectorAll("[data-idx]").forEach((el) => io.observe(el));
     return () => io.disconnect();
   }, [cards]);
-
-  // Carry sound across cards. iOS won't let a video's own play() effect turn sound
-  // on (unmuted playback needs a user gesture, and sticky activation isn't enough),
-  // so a scrolled-to card falls back to muted. We unmute the *active* video (same
-  // card the IntersectionObserver settled on — not wherever the finger happened to
-  // lift mid-flick) in response to gestures. We fire at touchend AND again as the
-  // flick's momentum settles, because at touchend the scroll is often still on the
-  // departing card; the follow-up timeouts land within iOS's post-gesture
-  // activation window, once `active` points at the card that's actually on screen.
-  // Runs once after mount; only touches refs, so no re-subscribe.
-  useEffect(() => {
-    const root = scrollRef.current;
-    if (!root) return;
-    const unmuteActive = () => {
-      if (!soundOnRef.current) return;
-      const vid = root.querySelector<HTMLVideoElement>(`[data-idx="${activeRef.current}"] video`);
-      if (!vid || (!vid.muted && !vid.paused)) return;
-      vid.muted = false;
-      vid.play().catch(() => {});
-    };
-    const onGesture = () => {
-      unmuteActive();
-      [120, 350, 650, 1000].forEach((ms) => window.setTimeout(unmuteActive, ms));
-    };
-    let scrollT: number | null = null;
-    const onScroll = () => {
-      if (scrollT) clearTimeout(scrollT);
-      scrollT = window.setTimeout(unmuteActive, 90); // fires ~when the scroll settles
-    };
-    root.addEventListener("touchend", onGesture, { passive: true });
-    root.addEventListener("click", onGesture);
-    root.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      root.removeEventListener("touchend", onGesture);
-      root.removeEventListener("click", onGesture);
-      root.removeEventListener("scroll", onScroll);
-      if (scrollT) clearTimeout(scrollT);
-    };
-  }, []);
 
   const post = (assetId: string, status: "saved" | "dismissed") =>
     fetch("/api/reference/save", {
