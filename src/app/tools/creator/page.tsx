@@ -2,7 +2,7 @@ import type { Viewport } from "next";
 import { redirect } from "next/navigation";
 import { getCreatorUser } from "@/lib/dal";
 import { buildFeed } from "@/lib/reference/feed";
-import { savedCount } from "@/lib/reference/saves";
+import { listSaved } from "@/lib/reference/saves";
 import SwipeClient from "./SwipeClient";
 
 // The feed and the user's saves both change under it, so render per request.
@@ -32,8 +32,9 @@ export default async function Page({
     redirect(`/api/auth/guest?next=/tools/creator${q}`);
   }
 
-  // Build the feed server-side so the first video is in the initial HTML — the
-  // app opens straight onto a playing video, no client fetch / loading screen.
-  const [saved, cards] = await Promise.all([savedCount(user.id), buildFeed(user.id)]);
-  return <SwipeClient initialSavedCount={saved} initialCards={cards} />;
+  // Build the feed AND the saved list server-side, so both are in the initial HTML.
+  // The app opens straight onto a playing video, and the saved screen renders
+  // instantly from cache with no client fetch / loading screen.
+  const [saved, cards] = await Promise.all([listSaved(user.id), buildFeed(user.id)]);
+  return <SwipeClient initialSaved={saved} initialCards={cards} />;
 }

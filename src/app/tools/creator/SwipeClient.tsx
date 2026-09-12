@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Bookmark, ChevronDown, Clapperboard, Play, Sparkles, TrendingUp, Volume2, VolumeX, X } from "lucide-react";
 import { labelFor } from "@/lib/creative/taxonomy";
 import type { ReferenceCard } from "@/lib/reference/lookup";
@@ -311,21 +311,27 @@ function RailButton({
 function Feed({
   initialCards,
   savedCount,
-  onSavedChange,
+  savedIds,
+  onSave,
+  onUnsave,
   onOpenSaved,
 }: {
   initialCards: FeedCard[];
   savedCount: number;
-  onSavedChange: (delta: number) => void;
+  savedIds: Set<string>;
+  onSave: (card: FeedCard) => void;
+  onUnsave: (id: string) => void;
   onOpenSaved: () => void;
 }) {
   const [cards, setCards] = useState<FeedCard[]>(initialCards);
   const [active, setActive] = useState(0);
   const [soundOn, setSoundOn] = useState(false); // muted on start; tap the sound button to unmute
-  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [briefCard, setBriefCard] = useState<FeedCard | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const savedRef = useRef<Set<string>>(new Set()); // mirror for stable closures
+  const savedIdsRef = useRef(savedIds); // mirror the prop for stable closures
+  useEffect(() => {
+    savedIdsRef.current = savedIds;
+  });
   const recorded = useRef<Set<string>>(new Set()); // assets already dismissed/saved
   const prevActive = useRef(0);
   const loadingMore = useRef(false);
@@ -409,7 +415,7 @@ function Feed({
     if (!cards) return;
     for (let k = prevActive.current; k < active; k++) {
       const c = cards[k];
-      if (c && !savedRef.current.has(c.id) && !recorded.current.has(c.id)) {
+      if (c && !savedIdsRef.current.has(c.id) && !recorded.current.has(c.id)) {
         recorded.current.add(c.id);
         post(c.id, "dismissed");
       }
@@ -434,7 +440,7 @@ function Feed({
       setCards((prev) => {
         const have = new Set(prev.map((c) => c.id));
         const fresh = incoming.filter(
-          (c) => !have.has(c.id) && !recorded.current.has(c.id) && !savedRef.current.has(c.id),
+          (c) => !have.has(c.id) && !recorded.current.has(c.id) && !savedIdsRef.current.has(c.id),
         );
         return fresh.length ? [...prev, ...fresh] : prev;
       });
@@ -449,23 +455,16 @@ function Feed({
     if (active >= cards.length - 8) loadMore();
   }, [active, cards.length, loadMore]);
 
+  // Save/unsave delegates to the root cache (which posts to the server and updates
+  // the saved list optimistically, so the saved screen is always current).
   const toggleSave = (card: FeedCard) => {
-    setSavedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(card.id)) {
-        next.delete(card.id);
-        recorded.current.add(card.id);
-        onSavedChange(-1);
-        post(card.id, "dismissed");
-      } else {
-        next.add(card.id);
-        recorded.current.delete(card.id);
-        onSavedChange(1);
-        post(card.id, "saved");
-      }
-      savedRef.current = next;
-      return next;
-    });
+    if (savedIds.has(card.id)) {
+      recorded.current.add(card.id);
+      onUnsave(card.id);
+    } else {
+      recorded.current.delete(card.id);
+      onSave(card);
+    }
   };
 
   if (cards.length === 0) {
@@ -1028,11 +1027,26 @@ function useSwipeBack(onBack: () => void) {
 
 // ── saved list (full overlay) ─────────────────────────────────────────────────
 
-function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: number) => void }) {
-  const [cards, setCards] = useState<ReferenceCard[] | null>(null);
+function SavedOverlay({
+  saved,
+  onClose,
+  onUnsave,
+}: {
+  saved: ReferenceCard[];
+  onClose: () => void;
+  onUnsave: (id: string) => void;
+}) {
   const [playing, setPlaying] = useState<ReferenceCard | null>(null);
   const [showBrief, setShowBrief] = useState(false);
   const [muted, setMuted] = useState(false); // reopening a saved video: sound on
+  const [entered, setEntered] = useState(false); // drives the slide-in entrance
+
+  // Animate in from the right on the next frame (starts off-screen, transitions to
+  // place). No data fetch — the list is passed in already-loaded, so it's instant.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   const open = (c: ReferenceCard) => {
     setShowBrief(false);
@@ -1042,35 +1056,18 @@ function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: 
   const { ref: listRef, dx: listDx, dragging: listDragging } = useSwipeBack(onClose);
   const { ref: replayRef, dx: replayDx, dragging: replayDragging } = useSwipeBack(() => setPlaying(null));
 
-  useEffect(() => {
-    fetch("/api/reference/saved")
-      .then((r) => r.json())
-      .then((d) => {
-        setCards(d.cards ?? []);
-        onCount((d.cards ?? []).length);
-      })
-      .catch(() => setCards([]));
-  }, [onCount]);
-
-  const remove = (assetId: string) => {
-    setCards((c) => {
-      const next = c?.filter((x) => x.id !== assetId) ?? null;
-      if (next) onCount(next.length);
-      return next;
-    });
-    fetch("/api/reference/save", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ assetId, status: "dismissed" }),
-    }).catch(() => {});
-  };
+  const remove = (assetId: string) => onUnsave(assetId);
 
   return (
     <div className="absolute inset-0 z-40">
-      {/* list screen — swipe right to go back to the feed */}
+      {/* list screen — slides in from the right; swipe right to go back to the feed */}
       <div
         ref={listRef}
-        style={{ transform: `translateX(${listDx}px)`, transition: listDragging ? "none" : "transform 0.2s ease-out" }}
+        style={{
+          transform: listDragging || listDx > 0 ? `translateX(${listDx}px)` : entered ? "translateX(0)" : "translateX(100%)",
+          opacity: entered || listDragging || listDx > 0 ? 1 : 0,
+          transition: listDragging ? "none" : "transform 0.32s cubic-bezier(0.22,1,0.36,1), opacity 0.32s ease-out",
+        }}
         className="absolute inset-0 flex flex-col bg-neutral-950 text-white"
       >
       <div className="flex items-center gap-2 border-b border-white/10 px-4 py-4 pt-[calc(env(safe-area-inset-top)+1rem)]">
@@ -1078,13 +1075,11 @@ function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: 
         <span className="text-[12px] text-white/40">— swipe right to go back</span>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
-        {cards === null ? (
-          <p className="text-sm text-white/50">Loading…</p>
-        ) : cards.length === 0 ? (
-          <p className="text-sm text-white/50">Nothing saved yet. Swipe right on ideas you want to make.</p>
+        {saved.length === 0 ? (
+          <p className="text-sm text-white/50">Nothing saved yet. Tap the bookmark on ideas you want to make.</p>
         ) : (
           <ul className="space-y-3">
-            {cards.map((c) => (
+            {saved.map((c) => (
               <li key={c.id} className="flex gap-3 rounded-xl bg-white/5 p-3 ring-1 ring-white/10">
                 <button
                   onClick={() => open(c)}
@@ -1161,24 +1156,67 @@ function SavedOverlay({ onClose, onCount }: { onClose: () => void; onCount: (n: 
 // ── root ──────────────────────────────────────────────────────────────────────
 
 export default function SwipeClient({
-  initialSavedCount,
+  initialSaved,
   initialCards,
 }: {
-  initialSavedCount: number;
+  initialSaved: ReferenceCard[];
   initialCards: FeedCard[];
 }) {
   const [showSaved, setShowSaved] = useState(false);
-  const [saved, setSaved] = useState(initialSavedCount);
+  // The saved list is cached here and hydrated from the server, so opening it is
+  // instant — no fetch, no loading screen. Kept current with optimistic updates.
+  const [savedCards, setSavedCards] = useState<ReferenceCard[]>(initialSaved);
+  const savedIds = useMemo(() => new Set(savedCards.map((c) => c.id)), [savedCards]);
+
+  const onSave = useCallback((card: ReferenceCard) => {
+    setSavedCards((prev) => (prev.some((c) => c.id === card.id) ? prev : [card, ...prev]));
+    fetch("/api/reference/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assetId: card.id, status: "saved" }),
+    }).catch(() => {});
+  }, []);
+
+  const onUnsave = useCallback((id: string) => {
+    setSavedCards((prev) => prev.filter((c) => c.id !== id));
+    fetch("/api/reference/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assetId: id, status: "dismissed" }),
+    }).catch(() => {});
+  }, []);
+
+  // Warm the saved thumbnails so the list paints with images already loaded.
+  useEffect(() => {
+    savedCards.slice(0, 12).forEach((c) => {
+      if (c.thumbUrl) {
+        const img = new window.Image();
+        img.src = c.thumbUrl;
+      }
+    });
+  }, [savedCards]);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black text-white select-none">
-      <Feed
-        initialCards={initialCards}
-        savedCount={saved}
-        onSavedChange={(d) => setSaved((s) => Math.max(0, s + d))}
-        onOpenSaved={() => setShowSaved(true)}
-      />
-      {showSaved && <SavedOverlay onClose={() => setShowSaved(false)} onCount={setSaved} />}
+      {/* Feed shifts left + dims behind the incoming saved screen. */}
+      <div
+        className="h-full w-full"
+        style={{
+          transform: showSaved ? "translateX(-16%)" : "translateX(0)",
+          opacity: showSaved ? 0.5 : 1,
+          transition: "transform 0.32s cubic-bezier(0.22,1,0.36,1), opacity 0.32s ease-out",
+        }}
+      >
+        <Feed
+          initialCards={initialCards}
+          savedCount={savedCards.length}
+          savedIds={savedIds}
+          onSave={onSave}
+          onUnsave={onUnsave}
+          onOpenSaved={() => setShowSaved(true)}
+        />
+      </div>
+      {showSaved && <SavedOverlay saved={savedCards} onClose={() => setShowSaved(false)} onUnsave={onUnsave} />}
     </div>
   );
 }
