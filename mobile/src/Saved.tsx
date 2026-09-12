@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { FlatList, Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Directions, Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoCard } from "./VideoCard";
 import type { FeedCard } from "./types";
@@ -21,8 +22,14 @@ export function Saved({
   const [playing, setPlaying] = useState<FeedCard | null>(null);
   const [muted, setMuted] = useState(false);
 
+  // Swipe right to leave the list (back to feed) or to leave a replay (back to list).
+  const closeFling = Gesture.Fling().direction(Directions.RIGHT).runOnJS(true).onEnd(() => onClose());
+  const replayFling = Gesture.Fling().direction(Directions.RIGHT).runOnJS(true).onEnd(() => setPlaying(null));
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+      <GestureDetector gesture={closeFling}>
       <View style={styles.root}>
         <View style={styles.header}>
           <Pressable onPress={onClose} hitSlop={10} style={styles.back}>
@@ -69,29 +76,33 @@ export function Saved({
           />
         )}
       </View>
+      </GestureDetector>
 
       {/* replay a saved video full-screen */}
       {playing ? (
-        <View style={StyleSheet.absoluteFill}>
-          <VideoCard
-            card={playing}
-            active
-            muted={muted}
-            width={width}
-            height={height}
-            isSaved
-            onToggleMute={() => setMuted((m) => !m)}
-            onToggleSave={() => {
-              onRemove(playing.id);
-              setPlaying(null);
-            }}
-            onOpenBrief={() => onOpenBrief(playing)}
-          />
-          <Pressable onPress={() => setPlaying(null)} hitSlop={10} style={styles.replayBack}>
-            <Ionicons name="chevron-back" size={28} color="#fff" />
-          </Pressable>
-        </View>
+        <GestureDetector gesture={replayFling}>
+          <View style={StyleSheet.absoluteFill}>
+            <VideoCard
+              card={playing}
+              active
+              muted={muted}
+              width={width}
+              height={height}
+              isSaved
+              onToggleMute={() => setMuted((m) => !m)}
+              onToggleSave={() => {
+                onRemove(playing.id);
+                setPlaying(null);
+              }}
+              onOpenBrief={() => onOpenBrief(playing)}
+            />
+            <Pressable onPress={() => setPlaying(null)} hitSlop={10} style={styles.replayBack}>
+              <Ionicons name="chevron-back" size={28} color="#fff" />
+            </Pressable>
+          </View>
+        </GestureDetector>
       ) : null}
+      </GestureHandlerRootView>
     </Modal>
   );
 }

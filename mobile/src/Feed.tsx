@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, type ViewToken, useWindowDimensions } from "react-native";
+import { Directions, Gesture, GestureDetector } from "react-native-gesture-handler";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoCard } from "./VideoCard";
 import { fetchFeed } from "./api";
@@ -61,7 +62,12 @@ export function Feed({
     );
   }
 
+  // Swipe left anywhere on the feed to open the saved list. Fling is directional,
+  // so it doesn't fight the vertical scroll.
+  const openSaved = Gesture.Fling().direction(Directions.LEFT).runOnJS(true).onEnd(() => onOpenSaved());
+
   return (
+    <GestureDetector gesture={openSaved}>
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <FlatList
         data={cards}
@@ -97,6 +103,7 @@ export function Feed({
         <Text style={styles.savedCount}>{savedIds.size}</Text>
       </Pressable>
     </View>
+    </GestureDetector>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useVideoPlayer, VideoView } from "expo-video";
 import type { FeedCard } from "./types";
 
@@ -58,9 +59,9 @@ export function VideoCard({
         <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
       ) : null}
 
-      {/* legibility scrims */}
-      <View style={styles.topScrim} pointerEvents="none" />
-      <View style={styles.bottomScrim} pointerEvents="none" />
+      {/* legibility scrims — real gradients, not flat boxes */}
+      <LinearGradient colors={["rgba(0,0,0,0.55)", "transparent"]} style={styles.topScrim} pointerEvents="none" />
+      <LinearGradient colors={["transparent", "rgba(0,0,0,0.9)"]} style={styles.bottomScrim} pointerEvents="none" />
 
       {/* top-left: brand + thin badge */}
       <View style={styles.topLeft} pointerEvents="none">
@@ -141,8 +142,8 @@ function RailButton({
 }
 
 const styles = StyleSheet.create({
-  topScrim: { position: "absolute", top: 0, left: 0, right: 0, height: 120, backgroundColor: "rgba(0,0,0,0.35)" },
-  bottomScrim: { position: "absolute", bottom: 0, left: 0, right: 0, height: 320, backgroundColor: "rgba(0,0,0,0.35)" },
+  topScrim: { position: "absolute", top: 0, left: 0, right: 0, height: 150 },
+  bottomScrim: { position: "absolute", bottom: 0, left: 0, right: 0, height: 380 },
   topLeft: { position: "absolute", top: 56, left: 16, flexDirection: "row", alignItems: "center", gap: 8 },
   brand: { color: "#fff", fontSize: 15, fontWeight: "700", textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 4 },
   thinBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(245,158,11,0.25)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
