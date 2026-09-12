@@ -435,9 +435,9 @@ function Feed({
   // so nothing on screen jumps; everything ahead is reshaped. Throttled to ~every
   // 2.5s so it feels responsive without hammering the server, and forced when the
   // deck is running low so the scroll never dead-ends.
-  const refreshTail = useCallback(async (force: boolean) => {
+  const refreshTail = useCallback(async () => {
     if (loadingMore.current) return;
-    if (!force && Date.now() - lastLoadTs.current < 2500) return; // throttle
+    if (Date.now() - lastLoadTs.current < 2500) return; // always throttle
     loadingMore.current = true;
     lastLoadTs.current = Date.now();
     try {
@@ -446,7 +446,9 @@ function Feed({
       const incoming = data.cards ?? [];
       if (!incoming.length) return;
       setCards((prev) => {
-        // Keep seen + current + next; re-rank everything after.
+        // Keep seen + current + next (never touch what's on screen); re-rank after.
+        // Each refresh brings up to a full fresh queue, so the deck stays replenished
+        // well ahead of the creator — no near-end force refetch needed.
         const keep = prev.slice(0, Math.min(prev.length, activeRef.current + 2));
         const keepIds = new Set(keep.map((c) => c.id));
         const tail = incoming.filter(
@@ -461,9 +463,11 @@ function Feed({
     }
   }, []);
 
+  // Re-rank on forward movement only. Throttled inside refreshTail; depends on
+  // `active` alone (not cards.length) so a resulting setCards can't re-trigger it.
   useEffect(() => {
-    refreshTail(active >= cards.length - 5);
-  }, [active, cards.length, refreshTail]);
+    refreshTail();
+  }, [active, refreshTail]);
 
   // Save/unsave delegates to the root cache (which posts to the server and updates
   // the saved list optimistically, so the saved screen is always current).
