@@ -43,11 +43,20 @@ function CardFace({
   const downPos = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
 
-  // Reliably play the active video. Programmatic play() can silently fail when
-  // it races a pause() during a fast scroll, when the element isn't ready yet,
-  // or when a preloaded video already fired `canplay` off-screen (so it won't
-  // fire again). Retry on a short schedule and on readiness events until it's
-  // actually playing — no tap required.
+  // Play the active video AND carry the sound setting across cards — the single
+  // source of truth for audio. The two are folded together on purpose:
+  //
+  //   1. Get it playing. If it's paused, start it MUTED — muted autoplay is always
+  //      allowed, so it never stalls on the first frame or gets blocked.
+  //   2. Reflect the sound setting. Once it's actually playing, set muted to match
+  //      the sound button. Setting muted=false on an already-playing element is
+  //      permitted just after a gesture (the scroll that brought this card in — the
+  //      same mechanism the sound button uses), so sound follows you from card to
+  //      card. If it can't take on the first tick, a later tick applies it.
+  //
+  // Runs on the retry schedule and on readiness/playing events, so both the "make
+  // it play" and "make it match the sound setting" steps land reliably without a
+  // tap. Sound is controlled only by `muted` (from the sound button), never taps.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -59,34 +68,29 @@ function CardFace({
       return;
     }
     let cancelled = false;
-    const attempt = () => {
+    const sync = () => {
       const vid = videoRef.current;
-      if (cancelled || !vid || !vid.paused) return;
-      vid.muted = muted; // set imperatively — React doesn't reliably apply the muted attribute
-      vid.play().catch(() => {
-        // Unmuted autoplay is blocked until the user interacts. Rather than stall
-        // on the first frame, fall back to muted playback so it always plays.
-        if (vid.muted) return;
-        vid.muted = true;
+      if (cancelled || !vid) return;
+      if (vid.paused) {
+        vid.muted = true; // guarantee playback; sound is applied once it's playing
         vid.play().catch(() => {});
-      });
+      } else if (vid.muted !== muted) {
+        vid.muted = muted; // playing now — reflect the sound button
+      }
     };
-    attempt();
-    const timers = [80, 250, 600, 1200].map((ms) => window.setTimeout(attempt, ms));
-    v.addEventListener("canplay", attempt);
-    v.addEventListener("loadeddata", attempt);
+    sync();
+    const timers = [80, 250, 600, 1200].map((ms) => window.setTimeout(sync, ms));
+    v.addEventListener("canplay", sync);
+    v.addEventListener("loadeddata", sync);
+    v.addEventListener("playing", sync);
     return () => {
       cancelled = true;
       timers.forEach(clearTimeout);
-      v.removeEventListener("canplay", attempt);
-      v.removeEventListener("loadeddata", attempt);
+      v.removeEventListener("canplay", sync);
+      v.removeEventListener("loadeddata", sync);
+      v.removeEventListener("playing", sync);
     };
   }, [active, muted]);
-
-  // Live-sync the sound toggle onto the playing element.
-  useEffect(() => {
-    if (videoRef.current) videoRef.current.muted = muted;
-  }, [muted]);
 
   // ── scrub bar: drag to seek ──
   const seekToClientX = (clientX: number) => {
