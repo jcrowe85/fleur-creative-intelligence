@@ -1,8 +1,8 @@
 module.exports = function (api) {
   api.cache(true);
+  // babel-preset-expo (SDK 57) automatically wires up react-native-worklets /
+  // reanimated when the package is installed — no manual plugin needed.
   return {
     presets: ["babel-preset-expo"],
-    // Reanimated 4 uses the worklets plugin; it must be listed last.
-    plugins: ["react-native-worklets/plugin"],
   };
 };
