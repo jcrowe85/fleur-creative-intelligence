@@ -64,9 +64,15 @@ function CardFace({
       return;
     }
     let cancelled = false;
+    // Settle gate: don't spin up a video the user is merely blitzing past during a
+    // fast scroll — only start once this card has stayed active for a beat. The
+    // effect is torn down (cancelled) the instant active changes, so fly-by cards
+    // never begin playing/decoding, which is what caused the current video to stutter.
+    const readyAt = Date.now() + 80;
     const ensure = () => {
       const vid = videoRef.current;
       if (cancelled || !vid || scrubbingRef.current || !vid.paused) return;
+      if (Date.now() < readyAt) return;
       vid.play().catch(() => {
         // The only thing ever blocked is an unmuted start — force muted and it
         // always plays. The audio layer restores sound afterward.
@@ -76,12 +82,13 @@ function CardFace({
         }
       });
     };
-    ensure();
-    const id = window.setInterval(ensure, 250);
+    const kickoff = window.setTimeout(ensure, 90);
+    const id = window.setInterval(ensure, 200);
     v.addEventListener("canplay", ensure);
     v.addEventListener("loadeddata", ensure);
     return () => {
       cancelled = true;
+      clearTimeout(kickoff);
       clearInterval(id);
       v.removeEventListener("canplay", ensure);
       v.removeEventListener("loadeddata", ensure);
@@ -571,18 +578,20 @@ function Feed({
         className="h-full w-full snap-y snap-mandatory overflow-y-scroll overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {cards.map((card, idx) => {
-          // Keep few videos mounted at once — iOS refuses to play a new one when
-          // too many are decoding. Active ± 1 covers the next scroll smoothly.
-          const near = Math.abs(idx - active) <= 1;
+          // Only the active card and the immediate next stay mounted. Everything
+          // scrolled PAST unmounts, which aborts its network request and frees its
+          // decoder — so passed videos can't compete with (and stutter) the current
+          // one. Scroll back down and the card remounts and resumes. Fewer videos
+          // decoding at once also stays well within iOS's simultaneous-video limit.
+          const near = idx === active || idx === active + 1;
           const isActive = idx === active;
           const isSaved = savedIds.has(card.id);
           return (
             <div key={card.id} data-idx={idx} className="relative h-full w-full snap-start snap-always">
               {near ? (
-                // Only the active card and the next one fully preload; the previous
-                // uses light metadata. Three simultaneous full downloads starve the
-                // active video's buffer and cause it to stall.
-                <CardFace card={card} active={isActive && !suspended} muted={!soundOn} preload={idx >= active ? "auto" : "metadata"} />
+                // Only the active card streams fully; the next uses light metadata so
+                // it's ready-ish without competing for the active video's bandwidth.
+                <CardFace card={card} active={isActive && !suspended} muted={!soundOn} preload={isActive ? "auto" : "metadata"} />
               ) : (
                 <div className="h-full w-full bg-black">
                   {Math.abs(idx - active) <= 4 && card.thumbUrl ? (
