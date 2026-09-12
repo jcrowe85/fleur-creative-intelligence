@@ -330,6 +330,10 @@ function Feed({
   const prevActive = useRef(0);
   const loadingMore = useRef(false);
   const lastLoadTs = useRef(0);
+  const onOpenSavedRef = useRef(onOpenSaved);
+  useEffect(() => {
+    onOpenSavedRef.current = onOpenSaved;
+  });
 
   // Track which video is in view (the active one plays).
   useEffect(() => {
@@ -348,6 +352,49 @@ function Feed({
     root.querySelectorAll("[data-idx]").forEach((el) => io.observe(el));
     return () => io.disconnect();
   }, [cards]);
+
+  // Swipe left on the feed to open the saved list — the natural counterpart to
+  // swiping right to leave it. Only engages on a clearly-horizontal leftward drag
+  // so the vertical scroll underneath is untouched. Bound once; onOpenSaved via ref.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    let startX = 0;
+    let startY = 0;
+    let decided = false;
+    let horiz = false;
+    const ts = (e: TouchEvent) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      decided = false;
+      horiz = false;
+    };
+    const tm = (e: TouchEvent) => {
+      const dX = e.touches[0].clientX - startX;
+      const dY = e.touches[0].clientY - startY;
+      if (!decided) {
+        if (Math.abs(dX) < 12 && Math.abs(dY) < 12) return;
+        decided = true;
+        horiz = dX < 0 && Math.abs(dX) > Math.abs(dY) * 1.3; // clearly leftward
+      }
+      if (horiz && e.cancelable) e.preventDefault(); // don't let it become a scroll
+    };
+    const te = (e: TouchEvent) => {
+      if (!horiz) return;
+      horiz = false;
+      if (e.changedTouches[0].clientX - startX < -70) onOpenSavedRef.current();
+    };
+    root.addEventListener("touchstart", ts, { passive: true });
+    root.addEventListener("touchmove", tm, { passive: false });
+    root.addEventListener("touchend", te);
+    root.addEventListener("touchcancel", te);
+    return () => {
+      root.removeEventListener("touchstart", ts);
+      root.removeEventListener("touchmove", tm);
+      root.removeEventListener("touchend", te);
+      root.removeEventListener("touchcancel", te);
+    };
+  }, []);
 
   const post = (assetId: string, status: "saved" | "dismissed") =>
     fetch("/api/reference/save", {
@@ -916,7 +963,15 @@ function useSwipeBack(onBack: () => void) {
   const ref = useCallback((el: HTMLDivElement | null) => {
     cleanup.current?.();
     cleanup.current = null;
-    if (!el) return;
+    if (!el) {
+      // Element unmounted. Reset the offset — otherwise a screen that slid off to
+      // dismiss (dx = full width) stays translated off-screen when it remounts,
+      // rendering it invisible and swallowing taps meant for the screen below.
+      dxRef.current = 0;
+      setDx(0);
+      setDragging(false);
+      return;
+    }
     const set = (v: number) => {
       dxRef.current = v;
       setDx(v);
