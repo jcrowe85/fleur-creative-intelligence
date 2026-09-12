@@ -345,6 +345,10 @@ function Feed({
   const savedRef = useRef<Set<string>>(new Set()); // mirror for stable closures
   const recorded = useRef<Set<string>>(new Set()); // assets already dismissed/saved
   const prevActive = useRef(0);
+  const soundOnRef = useRef(soundOn);
+  useEffect(() => {
+    soundOnRef.current = soundOn;
+  }, [soundOn]);
 
   // Track which video is in view (the active one plays).
   useEffect(() => {
@@ -363,6 +367,33 @@ function Feed({
     root.querySelectorAll("[data-idx]").forEach((el) => io.observe(el));
     return () => io.disconnect();
   }, [cards]);
+
+  // Carry sound across cards. iOS only allows *unmuted* playback when play() runs
+  // synchronously inside a real user gesture — sticky activation isn't enough, so
+  // a newly-scrolled-to video's own play() effect can't turn sound on and falls
+  // back to muted. Here, at the end of every swipe (touchend) and on tap, we
+  // unmute and play the video we've snapped to from *inside* the gesture, which
+  // iOS permits. Runs once after mount; only touches refs, so no re-subscribe.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const unmuteSnapped = () => {
+      if (!soundOnRef.current) return;
+      const h = root.clientHeight;
+      if (!h) return;
+      const idx = Math.round(root.scrollTop / h);
+      const vid = root.querySelector<HTMLVideoElement>(`[data-idx="${idx}"] video`);
+      if (!vid) return;
+      vid.muted = false;
+      vid.play().catch(() => {});
+    };
+    root.addEventListener("touchend", unmuteSnapped, { passive: true });
+    root.addEventListener("click", unmuteSnapped);
+    return () => {
+      root.removeEventListener("touchend", unmuteSnapped);
+      root.removeEventListener("click", unmuteSnapped);
+    };
+  }, []);
 
   const post = (assetId: string, status: "saved" | "dismissed") =>
     fetch("/api/reference/save", {
