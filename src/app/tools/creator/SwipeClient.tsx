@@ -42,53 +42,97 @@ function CardFace({
   const holdTimer = useRef<number | null>(null);
   const downPos = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
+  const scrubbingRef = useRef(false); // synchronous mirror of `scrubbing` for the watchdog
 
-  // Play the active video AND carry the sound setting across cards — the single
-  // source of truth for audio. The two are folded together on purpose:
-  //
-  //   1. Get it playing. If it's paused, start it MUTED — muted autoplay is always
-  //      allowed, so it never stalls on the first frame or gets blocked.
-  //   2. Reflect the sound setting. Once it's actually playing, set muted to match
-  //      the sound button. Setting muted=false on an already-playing element is
-  //      permitted just after a gesture (the scroll that brought this card in — the
-  //      same mechanism the sound button uses), so sound follows you from card to
-  //      card. If it can't take on the first tick, a later tick applies it.
-  //
-  // Runs on the retry schedule and on readiness/playing events, so both the "make
-  // it play" and "make it match the sound setting" steps land reliably without a
-  // tap. Sound is controlled only by `muted` (from the sound button), never taps.
+  // ── playback watchdog: keep the active video playing, always, no tap. ──
+  // play() gets refused transiently (a pause() race on fast scroll, iOS's cap on
+  // how many videos decode at once, an unmuted-start block), and the readiness
+  // events (canplay/loadeddata) may have already fired while the element was
+  // preloaded off-screen — so they won't fire again and a fixed handful of retries
+  // can expire with the video still paused = the stall. Instead, a lightweight
+  // interval re-issues play() until it sticks and recovers from any later stall.
+  // It respects an intentional scrub-pause, and never touches audio, so nothing
+  // about sound can ever stall playback.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     if (!active) {
       v.pause();
       v.playbackRate = 1;
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear speed overlay when this card scrolls out of view
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear speed overlay when this card leaves view
       setSpeed(null);
       return;
     }
     let cancelled = false;
-    const sync = () => {
+    const ensure = () => {
       const vid = videoRef.current;
-      if (cancelled || !vid) return;
-      if (vid.paused) {
-        vid.muted = true; // guarantee playback; sound is applied once it's playing
-        vid.play().catch(() => {});
-      } else if (vid.muted !== muted) {
-        vid.muted = muted; // playing now — reflect the sound button
+      if (cancelled || !vid || scrubbingRef.current || !vid.paused) return;
+      vid.play().catch(() => {
+        // The only thing ever blocked is an unmuted start — force muted and it
+        // always plays. The audio layer restores sound afterward.
+        if (!vid.muted) {
+          vid.muted = true;
+          vid.play().catch(() => {});
+        }
+      });
+    };
+    ensure();
+    const id = window.setInterval(ensure, 250);
+    v.addEventListener("canplay", ensure);
+    v.addEventListener("loadeddata", ensure);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      v.removeEventListener("canplay", ensure);
+      v.removeEventListener("loadeddata", ensure);
+    };
+  }, [active]);
+
+  // ── audio layer: reflect the sound button, best-effort, never stalls playback. ──
+  // Sound is set only by the button (via `muted`), never by taps. Muting is always
+  // safe. Unmuting only works on an already-playing element and only just after a
+  // user gesture (the scroll that revealed this card) — the same path the button
+  // uses — so we apply it once the video is playing, retried briefly and on
+  // timeupdate so sound follows from card to card. If a browser refuses by pausing
+  // on unmute, we detect it, revert to muted and give up for this card — so audio
+  // can never cause a stall or an oscillation.
+  useEffect(() => {
+    if (!active) return;
+    const v = videoRef.current;
+    if (!v) return;
+    let cancelled = false;
+    let gaveUp = false;
+    let unmuteAt = 0;
+    const apply = () => {
+      const vid = videoRef.current;
+      if (cancelled || !vid || gaveUp) return;
+      if (muted) {
+        if (!vid.muted) vid.muted = true;
+      } else if (vid.muted && !vid.paused) {
+        unmuteAt = Date.now();
+        vid.muted = false;
       }
     };
-    sync();
-    const timers = [80, 250, 600, 1200].map((ms) => window.setTimeout(sync, ms));
-    v.addEventListener("canplay", sync);
-    v.addEventListener("loadeddata", sync);
-    v.addEventListener("playing", sync);
+    const onPause = () => {
+      // Paused right after we unmuted → the browser rejected sound. Accept muted so
+      // the watchdog can keep it playing, and stop trying to unmute this card.
+      if (!muted && Date.now() - unmuteAt < 500) {
+        const vid = videoRef.current;
+        if (vid) vid.muted = true;
+        gaveUp = true;
+      }
+    };
+    apply();
+    const timers = [120, 350, 700, 1200].map((ms) => window.setTimeout(apply, ms));
+    v.addEventListener("playing", apply);
+    v.addEventListener("timeupdate", apply);
+    v.addEventListener("pause", onPause);
     return () => {
       cancelled = true;
       timers.forEach(clearTimeout);
-      v.removeEventListener("canplay", sync);
-      v.removeEventListener("loadeddata", sync);
-      v.removeEventListener("playing", sync);
+      v.removeEventListener("playing", apply);
+      v.removeEventListener("timeupdate", apply);
+      v.removeEventListener("pause", onPause);
     };
   }, [active, muted]);
 
@@ -103,6 +147,7 @@ function CardFace({
     v.currentTime = ratio * v.duration;
   };
   const scrubDown = (e: React.PointerEvent) => {
+    scrubbingRef.current = true; // synchronous — stops the watchdog from resuming mid-scrub
     setScrubbing(true);
     videoRef.current?.pause();
     e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -113,6 +158,7 @@ function CardFace({
   };
   const scrubUp = () => {
     if (!scrubbing) return;
+    scrubbingRef.current = false;
     setScrubbing(false);
     if (active) videoRef.current?.play().catch(() => {});
   };
@@ -170,7 +216,8 @@ function CardFace({
           ref={videoRef}
           src={card.mediaUrl}
           poster={card.thumbUrl ?? undefined}
-          muted={muted}
+          // muted is controlled imperatively by the playback/audio effects — a
+          // React `muted` prop is unreliable and would fight them.
           loop
           playsInline
           preload={preload}
@@ -508,7 +555,10 @@ function Feed({
           return (
             <div key={card.id} data-idx={idx} className="relative h-full w-full snap-start snap-always">
               {near ? (
-                <CardFace card={card} active={isActive} muted={!soundOn} preload="auto" />
+                // Only the active card and the next one fully preload; the previous
+                // uses light metadata. Three simultaneous full downloads starve the
+                // active video's buffer and cause it to stall.
+                <CardFace card={card} active={isActive} muted={!soundOn} preload={idx >= active ? "auto" : "metadata"} />
               ) : (
                 <div className="h-full w-full bg-black">
                   {Math.abs(idx - active) <= 4 && card.thumbUrl ? (
