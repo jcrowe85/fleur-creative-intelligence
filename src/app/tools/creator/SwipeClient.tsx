@@ -88,51 +88,34 @@ function CardFace({
     };
   }, [active]);
 
-  // ── audio layer: reflect the sound button, best-effort, never stalls playback. ──
-  // Sound is set only by the button (via `muted`), never by taps. Muting is always
-  // safe. Unmuting only works on an already-playing element and only just after a
-  // user gesture (the scroll that revealed this card) — the same path the button
-  // uses — so we apply it once the video is playing, retried briefly and on
-  // timeupdate so sound follows from card to card. If a browser refuses by pausing
-  // on unmute, we detect it, revert to muted and give up for this card — so audio
-  // can never cause a stall or an oscillation.
+  // ── audio layer #1 (per-card): reflect the sound button on this video. ──
+  // Sound is set only by the button (`muted`), never by taps. Muting is always
+  // safe; unmuting only takes on a playing element, so we re-apply on the play/
+  // timeupdate events and a retry schedule. This is ONE of two redundant layers —
+  // the Feed also reconciles the active video's audio on every gesture — so a
+  // scrolled-to video that would otherwise stay silent gets corrected either way.
   useEffect(() => {
     if (!active) return;
     const v = videoRef.current;
     if (!v) return;
     let cancelled = false;
-    let gaveUp = false;
-    let unmuteAt = 0;
     const apply = () => {
       const vid = videoRef.current;
-      if (cancelled || !vid || gaveUp) return;
-      if (muted) {
-        if (!vid.muted) vid.muted = true;
-      } else if (vid.muted && !vid.paused) {
-        unmuteAt = Date.now();
-        vid.muted = false;
-      }
-    };
-    const onPause = () => {
-      // Paused right after we unmuted → the browser rejected sound. Accept muted so
-      // the watchdog can keep it playing, and stop trying to unmute this card.
-      if (!muted && Date.now() - unmuteAt < 500) {
-        const vid = videoRef.current;
-        if (vid) vid.muted = true;
-        gaveUp = true;
-      }
+      if (cancelled || !vid) return;
+      // Mute immediately; unmute only once it's actually playing.
+      if (vid.muted !== muted && (muted || !vid.paused)) vid.muted = muted;
     };
     apply();
-    const timers = [120, 350, 700, 1200].map((ms) => window.setTimeout(apply, ms));
+    const timers = [100, 300, 600, 1000, 1500].map((ms) => window.setTimeout(apply, ms));
     v.addEventListener("playing", apply);
     v.addEventListener("timeupdate", apply);
-    v.addEventListener("pause", onPause);
+    v.addEventListener("canplay", apply);
     return () => {
       cancelled = true;
       timers.forEach(clearTimeout);
       v.removeEventListener("playing", apply);
       v.removeEventListener("timeupdate", apply);
-      v.removeEventListener("pause", onPause);
+      v.removeEventListener("canplay", apply);
     };
   }, [active, muted]);
 
@@ -393,6 +376,45 @@ function Feed({
   useEffect(() => {
     onOpenSavedRef.current = onOpenSaved;
   });
+  const soundOnRef = useRef(soundOn);
+  useEffect(() => {
+    soundOnRef.current = soundOn;
+  }, [soundOn]);
+
+  // ── audio layer #2 (feed-level reconciler): redundant safety net. ──
+  // On EVERY gesture (tap, scroll, scroll-settle) and on a periodic tick, force the
+  // active video's mute state to match the sound button. Gestures carry the
+  // permission needed to unmute, so a video that scrolled in silent gets sound the
+  // moment you touch/scroll — even if its own per-card audio effect missed. Only
+  // touches the muted property (never play/pause), so it can't stall playback.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const reconcile = () => {
+      const vid = root.querySelector<HTMLVideoElement>(`[data-idx="${activeRef.current}"] video`);
+      if (!vid || vid.paused) return;
+      const want = !soundOnRef.current; // want === desired muted
+      if (vid.muted !== want) vid.muted = want;
+    };
+    let t: number | null = null;
+    const onScroll = () => {
+      if (t) clearTimeout(t);
+      t = window.setTimeout(reconcile, 120); // when the scroll settles
+    };
+    root.addEventListener("touchend", reconcile, { passive: true });
+    root.addEventListener("pointerup", reconcile, { passive: true });
+    root.addEventListener("click", reconcile);
+    root.addEventListener("scroll", onScroll, { passive: true });
+    const id = window.setInterval(reconcile, 1000);
+    return () => {
+      root.removeEventListener("touchend", reconcile);
+      root.removeEventListener("pointerup", reconcile);
+      root.removeEventListener("click", reconcile);
+      root.removeEventListener("scroll", onScroll);
+      clearInterval(id);
+      if (t) clearTimeout(t);
+    };
+  }, []);
 
   // Track which video is in view (the active one plays).
   useEffect(() => {
@@ -1261,6 +1283,33 @@ export default function SwipeClient({
       }
     });
   }, [savedCards]);
+
+  // Trap the browser back gesture (iOS edge-swipe-right / Android back). Without a
+  // sentinel history entry, "back" leaves this page — and because the guest-auth
+  // redirect sits in history, it lands on a blank/expired entry: the white screen.
+  // We push a sentinel and, on any back, close the saved screen if open, then
+  // re-arm the sentinel — so the app is never navigated out from under the user.
+  const showSavedRef = useRef(showSaved);
+  useEffect(() => {
+    showSavedRef.current = showSaved;
+  }, [showSaved]);
+  useEffect(() => {
+    try {
+      history.pushState({ fyp: true }, "");
+    } catch {
+      /* history unavailable — nothing to trap */
+    }
+    const onPop = () => {
+      if (showSavedRef.current) setShowSaved(false);
+      try {
+        history.pushState({ fyp: true }, "");
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black text-white select-none">
