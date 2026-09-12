@@ -40,7 +40,6 @@ function CardFace({
 
   // long-press bookkeeping
   const holdTimer = useRef<number | null>(null);
-  const pressStart = useRef(0);
   const downPos = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
 
@@ -123,7 +122,12 @@ function CardFace({
     }
   };
   const pressDown = (e: React.PointerEvent) => {
-    pressStart.current = Date.now();
+    // This is a user gesture — apply the desired mute state now to unlock audio
+    // (browsers only allow unmuting inside a gesture, so this is what turns sound
+    // on for the first time).
+    const vid = videoRef.current;
+    if (vid && vid.muted !== muted) vid.muted = muted;
+
     downPos.current = { x: e.clientX, y: e.clientY };
     moved.current = false;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -151,12 +155,6 @@ function CardFace({
       v.playbackRate = 1;
       setSpeed(null);
       if (active) v.play().catch(() => {});
-      return;
-    }
-    // a quick, still tap toggles play/pause
-    if (v && !moved.current && Date.now() - pressStart.current < 220) {
-      if (v.paused) v.play().catch(() => {});
-      else v.pause();
     }
   };
 
