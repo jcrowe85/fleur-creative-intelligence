@@ -349,6 +349,10 @@ function Feed({
   useEffect(() => {
     soundOnRef.current = soundOn;
   }, [soundOn]);
+  const activeRef = useRef(active);
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
 
   // Track which video is in view (the active one plays).
   useEffect(() => {
@@ -368,30 +372,42 @@ function Feed({
     return () => io.disconnect();
   }, [cards]);
 
-  // Carry sound across cards. iOS only allows *unmuted* playback when play() runs
-  // synchronously inside a real user gesture — sticky activation isn't enough, so
-  // a newly-scrolled-to video's own play() effect can't turn sound on and falls
-  // back to muted. Here, at the end of every swipe (touchend) and on tap, we
-  // unmute and play the video we've snapped to from *inside* the gesture, which
-  // iOS permits. Runs once after mount; only touches refs, so no re-subscribe.
+  // Carry sound across cards. iOS won't let a video's own play() effect turn sound
+  // on (unmuted playback needs a user gesture, and sticky activation isn't enough),
+  // so a scrolled-to card falls back to muted. We unmute the *active* video (same
+  // card the IntersectionObserver settled on — not wherever the finger happened to
+  // lift mid-flick) in response to gestures. We fire at touchend AND again as the
+  // flick's momentum settles, because at touchend the scroll is often still on the
+  // departing card; the follow-up timeouts land within iOS's post-gesture
+  // activation window, once `active` points at the card that's actually on screen.
+  // Runs once after mount; only touches refs, so no re-subscribe.
   useEffect(() => {
     const root = scrollRef.current;
     if (!root) return;
-    const unmuteSnapped = () => {
+    const unmuteActive = () => {
       if (!soundOnRef.current) return;
-      const h = root.clientHeight;
-      if (!h) return;
-      const idx = Math.round(root.scrollTop / h);
-      const vid = root.querySelector<HTMLVideoElement>(`[data-idx="${idx}"] video`);
-      if (!vid) return;
+      const vid = root.querySelector<HTMLVideoElement>(`[data-idx="${activeRef.current}"] video`);
+      if (!vid || (!vid.muted && !vid.paused)) return;
       vid.muted = false;
       vid.play().catch(() => {});
     };
-    root.addEventListener("touchend", unmuteSnapped, { passive: true });
-    root.addEventListener("click", unmuteSnapped);
+    const onGesture = () => {
+      unmuteActive();
+      [120, 350, 650, 1000].forEach((ms) => window.setTimeout(unmuteActive, ms));
+    };
+    let scrollT: number | null = null;
+    const onScroll = () => {
+      if (scrollT) clearTimeout(scrollT);
+      scrollT = window.setTimeout(unmuteActive, 90); // fires ~when the scroll settles
+    };
+    root.addEventListener("touchend", onGesture, { passive: true });
+    root.addEventListener("click", onGesture);
+    root.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      root.removeEventListener("touchend", unmuteSnapped);
-      root.removeEventListener("click", unmuteSnapped);
+      root.removeEventListener("touchend", onGesture);
+      root.removeEventListener("click", onGesture);
+      root.removeEventListener("scroll", onScroll);
+      if (scrollT) clearTimeout(scrollT);
     };
   }, []);
 
