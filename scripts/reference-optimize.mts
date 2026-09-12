@@ -35,8 +35,16 @@ async function pool<T>(items: T[], n: number, fn: (t: T, i: number) => Promise<v
 async function main() {
   if (!storageConfigured()) throw new Error("Supabase storage not configured");
 
+  // When a downscale threshold is given, only touch the files that actually need
+  // it (bytes above the threshold), largest first — so the worst stall offenders
+  // clear soonest. Videos at/below the threshold were already faststarted at
+  // ingest, so there's nothing to do for them. With no threshold, faststart all.
   const targets = await db.referenceAsset.findMany({
-    where: { mediaUrl: { not: null } },
+    where: {
+      mediaUrl: { not: null },
+      ...(Number.isFinite(downscaleAboveMB) ? { mediaBytes: { gt: Math.round(downscaleAboveMB * 1e6) } } : {}),
+    },
+    orderBy: { mediaBytes: "desc" },
     select: { id: true, ttAdId: true, mediaUrl: true, mediaBytes: true, advertiserName: true },
   });
   console.log(
@@ -49,20 +57,9 @@ async function main() {
   let savedBytes = 0;
   let failed = 0;
 
-  let skipped = 0;
+  const skipped = 0; // re-runs skip naturally: shrunk files drop below the query threshold
   await pool(targets, concurrency, async (a) => {
     try {
-      // Skip work already done: a HEAD shows if it's cached (backfilled) and its
-      // size. Cached + within the downscale threshold → nothing to do. Keeps
-      // re-runs cheap and avoids hammering storage into 429s.
-      const head = await fetch(a.mediaUrl!, { method: "HEAD" });
-      const cached = (head.headers.get("cache-control") ?? "").includes("max-age=31536000");
-      const sizeMB = Number(head.headers.get("content-length") ?? a.mediaBytes ?? 0) / 1e6;
-      if (cached && sizeMB <= downscaleAboveMB) {
-        skipped += 1;
-        return;
-      }
-
       const r = await fetch(a.mediaUrl!);
       if (!r.ok) throw new Error(`fetch ${r.status}`);
       const before = Buffer.from(await r.arrayBuffer());
