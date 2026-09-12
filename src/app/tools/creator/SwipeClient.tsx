@@ -334,6 +334,10 @@ function Feed({
   });
   const recorded = useRef<Set<string>>(new Set()); // assets already dismissed/saved
   const prevActive = useRef(0);
+  const activeRef = useRef(0);
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
   const loadingMore = useRef(false);
   const lastLoadTs = useRef(0);
   const onOpenSavedRef = useRef(onOpenSaved);
@@ -423,37 +427,43 @@ function Feed({
     prevActive.current = active;
   }, [active, cards]);
 
-  // Live re-ranking + infinite scroll. The initial 60 cards are ranked at page
-  // load, so without this, swipes made this session (save = more like it, skip =
-  // less) wouldn't change what comes next until a cold reload. As the creator
-  // nears the end, refetch buildFeed — which now sees this session's swipes and
-  // excludes everything already actioned — and append the fresh, re-ranked cards.
-  const loadMore = useCallback(async () => {
+  // Continuous live re-ranking. The feed must start adapting from the very first
+  // swipes, not only near the end of the deck. As the creator moves through cards
+  // (each scroll-past is a "skip", each bookmark a "save"), we refetch buildFeed —
+  // which now reflects those signals — and REPLACE the not-yet-seen tail with the
+  // freshly-ranked queue. The current card and the next (preloaded) one are kept
+  // so nothing on screen jumps; everything ahead is reshaped. Throttled to ~every
+  // 2.5s so it feels responsive without hammering the server, and forced when the
+  // deck is running low so the scroll never dead-ends.
+  const refreshTail = useCallback(async (force: boolean) => {
     if (loadingMore.current) return;
-    if (Date.now() - lastLoadTs.current < 4000) return; // throttle
+    if (!force && Date.now() - lastLoadTs.current < 2500) return; // throttle
     loadingMore.current = true;
     lastLoadTs.current = Date.now();
     try {
       const res = await fetch("/api/reference/feed");
       const data = (await res.json().catch(() => ({}))) as { cards?: FeedCard[] };
       const incoming = data.cards ?? [];
+      if (!incoming.length) return;
       setCards((prev) => {
-        const have = new Set(prev.map((c) => c.id));
-        const fresh = incoming.filter(
-          (c) => !have.has(c.id) && !recorded.current.has(c.id) && !savedIdsRef.current.has(c.id),
+        // Keep seen + current + next; re-rank everything after.
+        const keep = prev.slice(0, Math.min(prev.length, activeRef.current + 2));
+        const keepIds = new Set(keep.map((c) => c.id));
+        const tail = incoming.filter(
+          (c) => !keepIds.has(c.id) && !recorded.current.has(c.id) && !savedIdsRef.current.has(c.id),
         );
-        return fresh.length ? [...prev, ...fresh] : prev;
+        return tail.length ? [...keep, ...tail] : prev;
       });
     } catch {
-      // ignore — retried on the next threshold crossing
+      // ignore — retried on the next card advance
     } finally {
       loadingMore.current = false;
     }
   }, []);
 
   useEffect(() => {
-    if (active >= cards.length - 8) loadMore();
-  }, [active, cards.length, loadMore]);
+    refreshTail(active >= cards.length - 5);
+  }, [active, cards.length, refreshTail]);
 
   // Save/unsave delegates to the root cache (which posts to the server and updates
   // the saved list optimistically, so the saved screen is always current).
