@@ -121,12 +121,8 @@ function CardFace({
     }
   };
   const pressDown = (e: React.PointerEvent) => {
-    // This is a user gesture — apply the desired mute state now to unlock audio
-    // (browsers only allow unmuting inside a gesture, so this is what turns sound
-    // on for the first time).
-    const vid = videoRef.current;
-    if (vid && vid.muted !== muted) vid.muted = muted;
-
+    // Tapping the screen must NOT change audio — sound is controlled only by the
+    // sound button (and the phone's volume). This handler is for long-press speed.
     downPos.current = { x: e.clientX, y: e.clientY };
     moved.current = false;
     const rect = e.currentTarget.getBoundingClientRect();
