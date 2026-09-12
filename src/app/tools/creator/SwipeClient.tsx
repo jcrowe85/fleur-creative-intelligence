@@ -378,10 +378,8 @@ function Feed({
     activeRef.current = active;
   }, [active]);
   const loadingMore = useRef(false);
-  // Seed with mount time so the re-rank effect's throttle skips the initial mount —
-  // the server already ranked the initial cards, and a refetch on load just competes
-  // with the first video loading. Re-ranking kicks in once the user starts moving.
-  const lastLoadTs = useRef(Date.now());
+  const lastLoadTs = useRef(0);
+  const rerankMounted = useRef(false); // skip the re-rank on the very first (mount) run
   const onOpenSavedRef = useRef(onOpenSaved);
   useEffect(() => {
     onOpenSavedRef.current = onOpenSaved;
@@ -546,7 +544,13 @@ function Feed({
 
   // Re-rank on forward movement only. Throttled inside refreshTail; depends on
   // `active` alone (not cards.length) so a resulting setCards can't re-trigger it.
+  // Skips the mount run so there's no refetch on load competing with the first
+  // video — re-ranking begins once the creator scrolls.
   useEffect(() => {
+    if (!rerankMounted.current) {
+      rerankMounted.current = true;
+      return;
+    }
     refreshTail();
   }, [active, refreshTail]);
 
