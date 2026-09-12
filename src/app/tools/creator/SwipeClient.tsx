@@ -61,16 +61,35 @@ function CardFace({
     let cancelled = false;
     const attempt = () => {
       const vid = videoRef.current;
-      if (cancelled || !vid || !vid.paused) return;
-      vid.muted = muted; // set imperatively — React doesn't reliably apply the muted attribute
-      vid.play().catch(() => {
-        // Unmuted autoplay is blocked until the user interacts. Rather than stall
-        // on the first frame, fall back to muted playback so it always plays;
-        // sound comes on once the browser has a user gesture.
-        if (vid.muted) return;
-        vid.muted = true;
-        vid.play().catch(() => {});
-      });
+      if (cancelled || !vid) return;
+      // Play with sound only if the page already has user activation. Before the
+      // first gesture the browser forces muted autoplay, so start muted and let a
+      // later attempt (once the user has scrolled/tapped) turn sound on.
+      // `hasBeenActive` is sticky — true forever after the first gesture — so
+      // every card after that plays unmuted directly, no per-card tap needed.
+      const activated =
+        typeof navigator !== "undefined" && "userActivation" in navigator
+          ? navigator.userActivation.hasBeenActive
+          : false;
+      const startMuted = muted || !activated;
+      if (vid.paused) {
+        vid.muted = startMuted; // set imperatively — React doesn't reliably apply the muted attribute
+        vid.play().catch((err: DOMException) => {
+          // Only the autoplay policy (NotAllowedError) should force muting. Other
+          // rejections — interrupted by a scroll/pause during fast scrolling — are
+          // transient and retried by the schedule; muting on those is what killed
+          // the sound on the next card.
+          if (err?.name === "NotAllowedError" && !vid.muted) {
+            vid.muted = true;
+            vid.play().catch(() => {});
+          }
+        });
+      } else if (vid.muted !== startMuted) {
+        // Already playing but the mute state is stale — e.g. it began muted before
+        // the user interacted and we now have activation. Correct it so sound
+        // comes on without a tap.
+        vid.muted = startMuted;
+      }
     };
     attempt();
     const timers = [80, 250, 600, 1200].map((ms) => window.setTimeout(attempt, ms));
