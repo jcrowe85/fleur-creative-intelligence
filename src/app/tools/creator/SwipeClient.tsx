@@ -897,17 +897,30 @@ function BriefSheet({ card, onClose }: { card: ReferenceCard; onClose: () => voi
 // off and calls onBack. Only engages on a clearly-horizontal rightward gesture,
 // so vertical scrolling underneath still works.
 function useSwipeBack(onBack: () => void) {
-  const ref = useRef<HTMLDivElement>(null);
   const [dx, setDx] = useState(0);
   const [dragging, setDragging] = useState(false);
   const dxRef = useRef(0);
-  const set = (v: number) => {
-    dxRef.current = v;
-    setDx(v);
-  };
+  // Keep the latest onBack in a ref so the listeners never need re-binding when it
+  // changes (callers often pass a fresh inline closure every render).
+  const onBackRef = useRef(onBack);
   useEffect(() => {
-    const el = ref.current;
+    onBackRef.current = onBack;
+  });
+  const cleanup = useRef<(() => void) | null>(null);
+
+  // Callback ref instead of an effect keyed on onBack. Binding once — and never
+  // re-binding on re-render — is essential: each setDx during a drag re-renders,
+  // and the old effect then tore down and re-added the listeners mid-gesture,
+  // resetting startX/active and breaking the swipe. A callback ref also (re)binds
+  // correctly when a screen mounts conditionally (e.g. the replay view).
+  const ref = useCallback((el: HTMLDivElement | null) => {
+    cleanup.current?.();
+    cleanup.current = null;
     if (!el) return;
+    const set = (v: number) => {
+      dxRef.current = v;
+      setDx(v);
+    };
     let startX = 0;
     let startY = 0;
     let active = false;
@@ -938,7 +951,7 @@ function useSwipeBack(onBack: () => void) {
       setDragging(false);
       if (dxRef.current > 90) {
         set(el.getBoundingClientRect().width);
-        setTimeout(onBack, 200);
+        setTimeout(() => onBackRef.current(), 200);
       } else {
         set(0);
       }
@@ -947,13 +960,14 @@ function useSwipeBack(onBack: () => void) {
     el.addEventListener("touchmove", tm, { passive: false });
     el.addEventListener("touchend", te);
     el.addEventListener("touchcancel", te);
-    return () => {
+    cleanup.current = () => {
       el.removeEventListener("touchstart", ts);
       el.removeEventListener("touchmove", tm);
       el.removeEventListener("touchend", te);
       el.removeEventListener("touchcancel", te);
     };
-  }, [onBack]);
+  }, []);
+
   return { ref, dx, dragging };
 }
 
