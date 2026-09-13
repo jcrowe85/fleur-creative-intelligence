@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useEvent } from "expo";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector, type GestureType } from "react-native-gesture-handler";
-import Animated, { ZoomIn, ZoomOut, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, { ZoomIn, ZoomOut, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -64,6 +64,9 @@ export function VideoCard({
 
   const [scrubbing, setScrubbing] = useState(false);
   const [scrubRatio, setScrubRatio] = useState(0);
+  // Whether the creator *chose* to pause (tap). Distinct from "not playing yet
+  // because it's still loading" — only a chosen pause shows the play glyph.
+  const [userPaused, setUserPaused] = useState(false);
 
   useEffect(() => {
     player.muted = muted;
@@ -73,6 +76,7 @@ export function VideoCard({
     if (!active) {
       player.pause();
       player.currentTime = 0;
+      setUserPaused(false);
       return;
     }
     if (paused) {
@@ -80,6 +84,7 @@ export function VideoCard({
       return;
     }
     player.play();
+    setUserPaused(false);
   }, [active, paused, player]);
 
   // Player properties don't drive React state, so the paused glyph listens to
@@ -92,6 +97,8 @@ export function VideoCard({
     currentOffsetFromLive: null,
   });
 
+  const { status } = useEvent(player, "statusChange", { status: player.status });
+
   const duration = player.duration;
   const hasTrack = !!card.mediaUrl && Number.isFinite(duration) && duration > 0;
   // While dragging, the finger is the source of truth — timeUpdate lags behind
@@ -99,9 +106,34 @@ export function VideoCard({
   const progress = scrubbing ? scrubRatio : duration > 0 ? Math.min(1, currentTime / duration) : 0;
 
   const togglePlay = () => {
-    if (player.playing) player.pause();
-    else player.play();
+    if (player.playing) {
+      player.pause();
+      setUserPaused(true);
+    } else {
+      player.play();
+      setUserPaused(false);
+    }
   };
+
+  // Buffering cue: no center loader. If the active video is still loading after a
+  // 1s grace (give it a chance to start on its own), flash the bottom timeline
+  // instead — TikTok-style.
+  const [waiting, setWaiting] = useState(false);
+  useEffect(() => {
+    if (active && !userPaused && status === "loading") {
+      const t = setTimeout(() => setWaiting(true), 1000);
+      return () => clearTimeout(t);
+    }
+    setWaiting(false);
+  }, [status, active, userPaused]);
+
+  const flash = useSharedValue(1);
+  useEffect(() => {
+    flash.value = waiting
+      ? withRepeat(withTiming(0.25, { duration: 500 }), -1, true)
+      : withTiming(1, { duration: 200 });
+  }, [waiting, flash]);
+  const flashStyle = useAnimatedStyle(() => ({ opacity: flash.value }));
 
   // The bar swells under the thumb instead of jumping to its bigger size.
   const grow = useSharedValue(0);
@@ -150,7 +182,7 @@ export function VideoCard({
           but below the rail, so the rail buttons keep their own taps. */}
       {card.mediaUrl ? (
         <Pressable style={StyleSheet.absoluteFill} onPress={togglePlay}>
-          {active && !isPlaying && !scrubbing ? (
+          {active && userPaused && !scrubbing ? (
             <View style={styles.pausedWrap} pointerEvents="none">
               <Animated.View
                 style={styles.pausedGlyph}
@@ -229,7 +261,7 @@ export function VideoCard({
                 <Text style={styles.timeTotal}> / {clock(duration)}</Text>
               </View>
             ) : null}
-            <Animated.View style={[styles.track, trackStyle]}>
+            <Animated.View style={[styles.track, trackStyle, flashStyle]}>
               <View style={[styles.fill, { width: `${progress * 100}%` }]} />
               {scrubbing ? (
                 <Animated.View
@@ -241,6 +273,12 @@ export function VideoCard({
             </Animated.View>
           </View>
         </GestureDetector>
+      ) : null}
+
+      {/* Before duration is known (initial load) there's no scrub track yet — show
+          a flashing hairline in its place while buffering. */}
+      {active && waiting && !hasTrack ? (
+        <Animated.View style={[styles.loadingLine, flashStyle]} pointerEvents="none" />
       ) : null}
     </View>
   );
@@ -320,6 +358,7 @@ const styles = StyleSheet.create({
   track: { height: 2.5, backgroundColor: "rgba(255,255,255,0.3)", borderRadius: 2 },
   trackBig: { height: 5, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.35)" },
   fill: { height: "100%", backgroundColor: "#fff", borderRadius: 3 },
+  loadingLine: { position: "absolute", left: 0, right: 0, bottom: 34, height: 2.5, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.55)" },
   knob: { position: "absolute", top: -5, marginLeft: -7.5, height: 15, width: 15, borderRadius: 8, backgroundColor: "#fff" },
   timeWrap: {
     position: "absolute",
