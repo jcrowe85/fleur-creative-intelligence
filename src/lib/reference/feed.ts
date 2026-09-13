@@ -20,7 +20,7 @@ import { buildPortfolio } from "@/lib/creative/portfolio";
 import { actionedAssetIds } from "./saves";
 import { type ReferenceCard } from "./lookup";
 import { AFFINITY_ATTRS, AFFINITY_SMOOTHING, LEARNED_WEIGHT, seedAffinity } from "./capability";
-import { contentTypeSeed } from "./contentTypes";
+import { contentTypeSeed, formatsForKeys } from "./contentTypes";
 import { resolveBrandId } from "@/lib/brand";
 
 export interface FeedCard extends ReferenceCard {
@@ -151,6 +151,8 @@ export async function buildFeed(userId: string, limit = 60): Promise<FeedCard[]>
   const user = await db.user.findUnique({ where: { id: userId }, select: { brandId: true, contentTypes: true } });
   const brandId = await resolveBrandId(user?.brandId);
   const seed = user && user.contentTypes.length > 0 ? contentTypeSeed(user.contentTypes) : seedAffinity;
+  // The taxonomy formats behind those picks — the "lane" that opens the scroll.
+  const lane = new Set(user ? formatsForKeys(user.contentTypes) : []);
 
   const [{ weights: pillarWeight, max: maxGap }, actioned, learned, rows] = await Promise.all([
     pillarWeights(brandId),
@@ -210,14 +212,30 @@ export async function buildFeed(userId: string, limit = 60): Promise<FeedCard[]>
   const out: FeedCard[] = [];
   let lastPillar: string | null = null;
   let lastPersona: string | null = null;
-  while (out.length < limit && scored.length) {
-    let idx = scored.findIndex((s) => s.card.pillar !== lastPillar && s.card.persona !== lastPersona);
-    if (idx === -1) idx = scored.findIndex((s) => s.card.pillar !== lastPillar);
-    if (idx === -1) idx = 0; // only same-pillar cards remain
-    const [picked] = scored.splice(idx, 1);
-    out.push(picked.card);
-    lastPillar = picked.card.pillar;
-    lastPersona = picked.card.persona;
+
+  const drain = (pool: { card: FeedCard; score: number }[]) => {
+    while (out.length < limit && pool.length) {
+      let idx = pool.findIndex((s) => s.card.pillar !== lastPillar && s.card.persona !== lastPersona);
+      if (idx === -1) idx = pool.findIndex((s) => s.card.pillar !== lastPillar);
+      if (idx === -1) idx = 0; // only same-pillar cards remain
+      const [picked] = pool.splice(idx, 1);
+      out.push(picked.card);
+      lastPillar = picked.card.pillar;
+      lastPersona = picked.card.persona;
+    }
+  };
+
+  // The declared lane opens the scroll — all of it, before anything else — so the
+  // first thing a creator sees is what they actually asked for. Interleaving alone
+  // wasn't enough: a thin lane clusters on one pillar and persona (18 of the 21
+  // street interviews are social_proof, 12 are persona "none"), so the anti-repeat
+  // rule kept stepping over them into the big formats. A lane is almost always
+  // smaller than `limit`, and the tail then fills by score as before.
+  if (lane.size > 0) {
+    drain(scored.filter((s) => lane.has(s.card.format)));
+    drain(scored.filter((s) => !lane.has(s.card.format)));
+  } else {
+    drain(scored);
   }
   return out;
 }

@@ -71,8 +71,14 @@ export function formatsForKeys(keys: string[]): string[] {
 
 /**
  * A seed-affinity function derived from the creator's onboarding picks. Boosts
- * the chosen lanes' formats/production, mildly down-weights other formats (only
- * once something is chosen), neutral otherwise. Learned affinity layers on top.
+ * the chosen lanes' formats/production, down-weights other formats (only once
+ * something is chosen), neutral otherwise. Learned affinity layers on top.
+ *
+ * The boost has to beat W_GAP (2.0 in feed.ts), because a thin lane usually
+ * sits on pillars Fleur has no gap in: 18 of the 21 street interviews are
+ * social_proof, which carries no gap weight at all. At +1.2/-0.4 the gap term
+ * outvoted the creator's own pick and exactly one street interview reached a
+ * 60-card feed. At +4.0/-1.5 the whole lane surfaces.
  */
 export function contentTypeSeed(keys: string[]): (attr: string, value: string) => number {
   const boostFormat = new Set<string>();
@@ -85,7 +91,7 @@ export function contentTypeSeed(keys: string[]): (attr: string, value: string) =
   }
   const chose = boostFormat.size > 0;
   return (attr, value) => {
-    if (attr === "format") return boostFormat.has(value) ? 1.2 : chose ? -0.4 : 0;
+    if (attr === "format") return boostFormat.has(value) ? 4.0 : chose ? -1.5 : 0;
     if (attr === "production") return boostProduction.has(value) ? 0.8 : 0;
     return 0;
   };
