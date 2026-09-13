@@ -9,11 +9,13 @@ import type { FeedCard } from "./types";
 export function Feed({
   savedIds,
   onToggleSave,
+  onSkip,
   onOpenBrief,
   onOpenSaved,
 }: {
   savedIds: Set<string>;
   onToggleSave: (card: FeedCard) => void;
+  onSkip: (id: string) => void;
   onOpenBrief: (card: FeedCard) => void;
   onOpenSaved: () => void;
 }) {
@@ -23,6 +25,8 @@ export function Feed({
   const [soundOn, setSoundOn] = useState(true); // native: sound-on just works
   const [loading, setLoading] = useState(true);
   const loadingMore = useRef(false);
+  const prevActive = useRef(0);
+  const skipped = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     fetchFeed()
@@ -53,6 +57,20 @@ export function Feed({
     if (first?.index != null) setActive(first.index);
   });
   const viewConfig = useRef({ itemVisiblePercentThreshold: 60 });
+
+  // Scrolling PAST a video (moving forward) is a soft "skip": record it dismissed
+  // so it won't repeat and the feed learns a mild negative — UNLESS it was saved,
+  // in which case the save stands and no skip is recorded (so a save never nets out).
+  useEffect(() => {
+    for (let k = prevActive.current; k < active; k++) {
+      const c = cards[k];
+      if (c && !savedIds.has(c.id) && !skipped.current.has(c.id)) {
+        skipped.current.add(c.id);
+        onSkip(c.id);
+      }
+    }
+    prevActive.current = active;
+  }, [active, cards, savedIds, onSkip]);
 
   if (loading) {
     return (

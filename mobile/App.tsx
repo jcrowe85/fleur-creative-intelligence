@@ -54,6 +54,11 @@ export default function App() {
     postSave(id, "dismissed").catch(() => {});
   }, []);
 
+  // Scroll-past skip (Feed only calls this for videos that weren't saved).
+  const onSkip = useCallback((id: string) => {
+    postSave(id, "dismissed").catch(() => {});
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#000" }}>
       <StatusBar style="light" />
@@ -66,6 +71,7 @@ export default function App() {
           <Feed
             savedIds={savedIds}
             onToggleSave={toggleSave}
+            onSkip={onSkip}
             onOpenBrief={(c) => setBriefCard(c)}
             onOpenSaved={() => setShowSaved(true)}
           />
