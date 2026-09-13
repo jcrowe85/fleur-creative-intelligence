@@ -45,7 +45,8 @@ export function BriefSheet({
   onClose,
 }: {
   card: FeedCard | null;
-  /** Which tab to land on — the rail's Brainstorm button opens straight to chat. */
+  /** Which tab to land on — the rail's Brainstorm button opens straight to chat.
+   *  Section-by-section study is its own full-screen module (StudyScreen). */
   initialTab?: Tab;
   onClose: () => void;
 }) {

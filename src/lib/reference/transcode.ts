@@ -42,17 +42,25 @@ export function faststartRemux(input: Buffer): Promise<Buffer> {
   return run(input, (i, o) => ["-y", "-i", i, "-c", "copy", "-movflags", "+faststart", o]);
 }
 
-/** Full re-encode to 720p H.264/AAC + faststart, with a bitrate cap so output is
- *  predictably small (~a few MB) regardless of the source. Slow; for oversized
- *  outliers only. */
+/**
+ * Full re-encode capped at 720 on the SHORT edge (so portrait stays 720x1280),
+ * H.264/AAC + faststart. Slow; for oversized outliers only.
+ *
+ * The previous filter capped the LONG edge — written as if the corpus were
+ * landscape. Every ad here is vertical, so 720x1280 sources came out 406x720,
+ * and CRF 30 dropped them to ~250kbps against a 1300kbps source. That is the
+ * "low quality on device" everyone was seeing. 720p means 720 on the short
+ * edge; this now matches the name.
+ */
 export function downscale720p(input: Buffer): Promise<Buffer> {
   return run(input, (i, o) => [
     "-y", "-i", i,
-    "-vf", `scale='if(gt(iw,ih),min(720,iw),-2)':'if(gt(iw,ih),-2,min(720,ih))'`,
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "30",
-    // cap the bitrate so a long/high-motion source can't stay huge
-    "-maxrate", "1500k", "-bufsize", "3000k",
-    "-c:a", "aac", "-b:a", "96k",
+    "-vf", `scale='if(gt(iw,ih),-2,min(720,iw))':'if(gt(iw,ih),min(720,ih),-2)'`,
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+    // Cap the bitrate so a long/high-motion source can't stay huge, but leave
+    // enough headroom to look right on a phone screen.
+    "-maxrate", "3500k", "-bufsize", "7000k",
+    "-c:a", "aac", "-b:a", "128k",
     "-movflags", "+faststart",
     o,
   ]);

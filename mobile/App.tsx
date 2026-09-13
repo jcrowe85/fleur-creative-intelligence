@@ -6,6 +6,7 @@ import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 
 import { Feed } from "./src/Feed";
 import { Saved } from "./src/Saved";
 import { BriefSheet } from "./src/BriefSheet";
+import { StudyScreen } from "./src/StudyScreen";
 import { Onboarding } from "./src/Onboarding";
 import { AnimatedSplash } from "./src/AnimatedSplash";
 import { fetchContentTypes, fetchSaved, postSave, resetIdentity } from "./src/api";
@@ -28,6 +29,8 @@ export default function App() {
   const [showSaved, setShowSaved] = useState(false);
   const [briefCard, setBriefCard] = useState<FeedCard | null>(null);
   const [briefTab, setBriefTab] = useState<"brief" | "chat">("brief");
+  // Section-by-section study is its own full-screen module.
+  const [studyCard, setStudyCard] = useState<FeedCard | null>(null);
   // Bumped to re-run the first-run bootstrap after a data reset.
   const [bootKey, setBootKey] = useState(0);
 
@@ -131,13 +134,10 @@ export default function App() {
             <View style={{ flex: 1 }}>
               <Feed
                 savedIds={savedIds}
-                suspended={showSaved}
+                suspended={showSaved || briefCard !== null || studyCard !== null}
                 onToggleSave={toggleSave}
                 onSkip={onSkip}
-                onOpenBrief={(c) => {
-                  setBriefTab("brief");
-                  setBriefCard(c);
-                }}
+                onOpenBrief={(c) => setStudyCard(c)}
                 onOpenChat={(c) => {
                   setBriefTab("chat");
                   setBriefCard(c);
@@ -158,6 +158,8 @@ export default function App() {
           </Animated.View>
 
           <BriefSheet card={briefCard} initialTab={briefTab} onClose={() => setBriefCard(null)} />
+          {/* Owns its own brief/brainstorm sheet — see the note in StudyScreen. */}
+          <StudyScreen card={studyCard} onClose={() => setStudyCard(null)} />
         </>
       )}
     </GestureHandlerRootView>

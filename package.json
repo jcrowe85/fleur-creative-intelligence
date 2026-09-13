@@ -21,7 +21,8 @@
     "reference:ingest": "infisical run --env=dev -- tsx scripts/reference-ingest.mts",
     "reference:coverage": "infisical run --env=dev -- tsx scripts/reference-coverage.mts",
     "reference:bulk": "infisical run --env=dev -- tsx scripts/reference-ingest-bulk.mts",
-    "reference:optimize": "infisical run --env=dev -- tsx scripts/reference-optimize.mts"
+    "reference:optimize": "infisical run --env=dev -- tsx scripts/reference-optimize.mts",
+    "reference:remirror": "infisical run --env=dev -- tsx scripts/reference-remirror.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.101.0",

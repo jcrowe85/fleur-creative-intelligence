@@ -237,5 +237,6 @@ export async function buildFeed(userId: string, limit = 60): Promise<FeedCard[]>
   } else {
     drain(scored);
   }
+
   return out;
 }

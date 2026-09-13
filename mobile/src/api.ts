@@ -83,8 +83,14 @@ export function postSave(assetId: string, status: "saved" | "dismissed"): Promis
 
 export interface Beat {
   time: string;
+  /** In/out points for the section player — the clip loops between these. */
+  startSec: number;
+  endSec: number;
   job: string;
   detail: string;
+  /** What the reference creator actually said in this window, when the clip
+   *  came with a timed transcript. */
+  says?: string;
 }
 export interface Framework {
   whyItWorks: string;

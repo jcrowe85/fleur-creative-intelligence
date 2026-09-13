@@ -4,7 +4,10 @@ import { getOrCreateFramework } from "@/lib/reference/framework";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 90;
+// Generating a framework runs 30-80s depending on the clip, and 90s was close
+// enough to the ceiling that slower ones were killed mid-flight and surfaced as
+// "couldn't break this into sections" in the app.
+export const maxDuration = 300;
 
 /** The creative framework for a saved video (?assetId=). Generated + cached on
  *  first request, so the first open is slower and every open after is instant. */

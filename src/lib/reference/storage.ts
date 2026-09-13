@@ -56,3 +56,21 @@ export async function uploadToStorage(
   }
   return `${url}/storage/v1/object/public/${bucket}/${clean}`;
 }
+
+/**
+ * Removes an object from the bucket. Used when an asset is re-mirrored to a new
+ * path and the superseded file would otherwise sit there forever — the uploads
+ * are cached `immutable` for a year, so replacing content means a new path, not
+ * an overwrite.
+ */
+export async function deleteFromStorage(path: string): Promise<void> {
+  const { url, key, bucket } = config();
+  const clean = path.replace(/^\/+/, "");
+  const r = await fetch(`${url}/storage/v1/object/${bucket}/${clean}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${key}`, apikey: key },
+  });
+  if (!r.ok && r.status !== 404) {
+    throw new Error(`Supabase delete ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  }
+}

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useEvent } from "expo";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector, type GestureType } from "react-native-gesture-handler";
+import Animated, { ZoomIn, ZoomOut, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -101,6 +103,16 @@ export function VideoCard({
     else player.play();
   };
 
+  // The bar swells under the thumb instead of jumping to its bigger size.
+  const grow = useSharedValue(0);
+  useEffect(() => {
+    grow.value = withTiming(scrubbing ? 1 : 0, { duration: 160 });
+  }, [scrubbing, grow]);
+  const trackStyle = useAnimatedStyle(() => ({
+    height: 2.5 + grow.value * 2.5,
+    borderRadius: 2 + grow.value,
+  }));
+
   const scrub = useMemo(() => {
     const seekTo = (x: number) => {
       const d = player.duration;
@@ -140,9 +152,13 @@ export function VideoCard({
         <Pressable style={StyleSheet.absoluteFill} onPress={togglePlay}>
           {active && !isPlaying && !scrubbing ? (
             <View style={styles.pausedWrap} pointerEvents="none">
-              <View style={styles.pausedGlyph}>
+              <Animated.View
+                style={styles.pausedGlyph}
+                entering={ZoomIn.duration(180)}
+                exiting={ZoomOut.duration(140)}
+              >
                 <Ionicons name="play" size={44} color="#fff" style={{ marginLeft: 5 }} />
-              </View>
+              </Animated.View>
             </View>
           ) : null}
         </Pressable>
@@ -189,7 +205,11 @@ export function VideoCard({
           <RailButton onPress={onOpenChat} icon="chatbubble-ellipses-outline" label="Brainstorm" />
         ) : null}
         <RailButton
-          onPress={onToggleSave}
+          onPress={() => {
+            // A save is a decision worth feeling.
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            onToggleSave();
+          }}
           icon={isSaved ? "bookmark" : "bookmark-outline"}
           label={isSaved ? "Saved" : "Save"}
           tint={isSaved ? "#fff" : undefined}
@@ -209,10 +229,16 @@ export function VideoCard({
                 <Text style={styles.timeTotal}> / {clock(duration)}</Text>
               </View>
             ) : null}
-            <View style={[styles.track, scrubbing && styles.trackBig]}>
+            <Animated.View style={[styles.track, trackStyle]}>
               <View style={[styles.fill, { width: `${progress * 100}%` }]} />
-              {scrubbing ? <View style={[styles.knob, { left: `${progress * 100}%` }]} /> : null}
-            </View>
+              {scrubbing ? (
+                <Animated.View
+                  style={[styles.knob, { left: `${progress * 100}%` }]}
+                  entering={ZoomIn.duration(140)}
+                  exiting={ZoomOut.duration(120)}
+                />
+              ) : null}
+            </Animated.View>
           </View>
         </GestureDetector>
       ) : null}
@@ -276,7 +302,7 @@ const styles = StyleSheet.create({
   brand: { color: "#fff", fontSize: 15, fontWeight: "700", textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 4 },
   thinBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(245,158,11,0.25)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
   thinText: { color: "#fde68a", fontSize: 11, fontWeight: "600" },
-  bottomLeft: { position: "absolute", left: 16, right: 84, bottom: 52, gap: 10 },
+  bottomLeft: { position: "absolute", left: 16, right: 84, bottom: 84, gap: 10 },
   hook: { color: "#fff", fontSize: 16, fontWeight: "500", lineHeight: 21, textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 4 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   chip: { backgroundColor: "rgba(255,255,255,0.18)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
@@ -287,8 +313,10 @@ const styles = StyleSheet.create({
   railIcon: { height: 48, width: 48, borderRadius: 24, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center" },
   railLabel: { color: "rgba(255,255,255,0.9)", fontSize: 11, fontWeight: "600" },
 
-  // A 44pt grab area so a thumb can find a 2.5pt line.
-  scrubHit: { position: "absolute", left: 0, right: 0, bottom: 0, height: 44, justifyContent: "flex-end", paddingBottom: 14 },
+  // Lifted clear of the bottom edge: sitting flush, the track fell inside the
+  // home-indicator zone, where the system swallows the drag before we see it.
+  // The line ends up ~34pt up with a 52pt grab area above it.
+  scrubHit: { position: "absolute", left: 0, right: 0, bottom: 24, height: 52, justifyContent: "flex-end", paddingBottom: 10 },
   track: { height: 2.5, backgroundColor: "rgba(255,255,255,0.3)", borderRadius: 2 },
   trackBig: { height: 5, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.35)" },
   fill: { height: "100%", backgroundColor: "#fff", borderRadius: 3 },

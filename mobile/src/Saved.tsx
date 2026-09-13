@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { FlatList, Image, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Directions, Gesture, GestureDetector } from "react-native-gesture-handler";
-import { runOnJS, withSpring, type SharedValue } from "react-native-reanimated";
+import Animated, { FadeIn, runOnJS, withSpring, type SharedValue } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoCard } from "./VideoCard";
 import { BriefSheet } from "./BriefSheet";
+import { StudyScreen } from "./StudyScreen";
 import type { FeedCard } from "./types";
 
 const COLS = 3;
 const GAP = 6;
+// Tiles arrive on a short stagger so the grid assembles rather than appears.
+const ATile = Animated.createAnimatedComponent(Pressable);
 const COMMIT_RATIO = 0.3;
 const COMMIT_VELOCITY = 800;
 const SPRING = { damping: 22, stiffness: 220, mass: 0.7 };
@@ -40,6 +43,7 @@ export function Saved({
   // The brief/brainstorm sheet lives in here so it belongs to this screen.
   const [sheetCard, setSheetCard] = useState<FeedCard | null>(null);
   const [sheetTab, setSheetTab] = useState<"brief" | "chat">("brief");
+  const [studyCard, setStudyCard] = useState<FeedCard | null>(null);
 
   const openSheet = (card: FeedCard, tab: "brief" | "chat") => {
     setSheetTab(tab);
@@ -90,10 +94,14 @@ export function Saved({
               numColumns={COLS}
               columnWrapperStyle={{ gap: GAP, paddingHorizontal: GAP }}
               contentContainerStyle={{ gap: GAP, paddingVertical: GAP }}
-              renderItem={({ item }) => {
+              renderItem={({ item, index }) => {
                 const len = clock(item.durationSec);
                 return (
-                  <Pressable onPress={() => setPlaying(item)} style={[styles.tile, { width: tile, height: tile * (16 / 9) }]}>
+                  <ATile
+                    onPress={() => setPlaying(item)}
+                    style={[styles.tile, { width: tile, height: tile * (16 / 9) }]}
+                    entering={FadeIn.delay(Math.min(index, 11) * 28).duration(240)}
+                  >
                     {item.thumbUrl ? (
                       <Image source={{ uri: item.thumbUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
                     ) : null}
@@ -107,7 +115,7 @@ export function Saved({
                       <Ionicons name="play" size={11} color="#fff" />
                       {len ? <Text style={styles.tileLen}>{len}</Text> : null}
                     </View>
-                  </Pressable>
+                  </ATile>
                 );
               }}
             />
@@ -122,7 +130,7 @@ export function Saved({
             <VideoCard
               card={playing}
               active
-              paused={sheetCard !== null}
+              paused={sheetCard !== null || studyCard !== null}
               muted={muted}
               width={width}
               height={height}
@@ -132,7 +140,7 @@ export function Saved({
                 onRemove(playing.id);
                 setPlaying(null);
               }}
-              onOpenBrief={() => openSheet(playing, "brief")}
+              onOpenBrief={() => setStudyCard(playing)}
               onOpenChat={() => openSheet(playing, "chat")}
             />
             <Pressable onPress={() => setPlaying(null)} hitSlop={10} style={styles.replayBack}>
@@ -143,6 +151,7 @@ export function Saved({
       ) : null}
 
       <BriefSheet card={sheetCard} initialTab={sheetTab} onClose={() => setSheetCard(null)} />
+      <StudyScreen card={studyCard} onClose={() => setStudyCard(null)} />
     </View>
   );
 }
