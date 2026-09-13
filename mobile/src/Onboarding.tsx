@@ -3,6 +3,7 @@ import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, View, 
 import { Ionicons } from "@expo/vector-icons";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { fetchExamples, saveContentTypes, type ContentTypeExample } from "./api";
+import { AnimatedSplash } from "./AnimatedSplash";
 
 export function Onboarding({ onDone }: { onDone: () => void }) {
   const [types, setTypes] = useState<ContentTypeExample[]>([]);
@@ -43,13 +44,8 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 
   if (personalizing) return <Personalizing />;
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color="#fff" />
-      </View>
-    );
-  }
+  // Same load screen as the feed — the splash carries the wait, no spinner.
+  if (loading) return <AnimatedSplash />;
 
   return (
     <View style={styles.root}>

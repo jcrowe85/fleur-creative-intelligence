@@ -37,6 +37,20 @@ export async function getToken(): Promise<string> {
   return t;
 }
 
+/**
+ * Forget who we are. The next call mints a fresh guest, so the app comes back
+ * as a brand-new creator — no saves, no content types, straight to onboarding.
+ * Nothing is deleted server-side; the old guest is simply abandoned.
+ */
+export async function resetIdentity(): Promise<void> {
+  cachedToken = null;
+  try {
+    await SecureStore.deleteItemAsync(TOKEN_KEY);
+  } catch {
+    // Nothing stored (or store unavailable) — the in-memory clear is enough.
+  }
+}
+
 async function authed(path: string, init: RequestInit = {}): Promise<Response> {
   const token = await getToken();
   return fetch(`${API_BASE}${path}`, {
@@ -111,6 +125,55 @@ export async function saveContentTypes(contentTypes: string[]): Promise<string[]
   if (!res.ok) throw new Error(`save profile ${res.status}`);
   const data = (await res.json()) as { contentTypes?: string[] };
   return data.contentTypes ?? [];
+}
+
+export type ChatMsg = { role: "user" | "assistant"; content: string };
+
+/**
+ * Brainstorm chat about one saved video. The route streams plain text, and
+ * React Native's built-in fetch can't read a streaming body — expo/fetch can,
+ * so the reply lands word by word instead of in one lump at the end.
+ */
+export async function streamChat(
+  assetId: string,
+  messages: ChatMsg[],
+  onDelta: (chunk: string) => void,
+): Promise<void> {
+  const token = await getToken();
+  const url = `${API_BASE}/api/reference/chat`;
+  const init = {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ assetId, messages }),
+  };
+
+  // expo/fetch can read a streaming body, but its native module isn't in Expo
+  // Go — importing it at module scope took the whole app down. Try it lazily,
+  // and fall back to one-shot fetch (reply arrives whole) when it isn't there.
+  let emitted = false;
+  try {
+    const { fetch: streamingFetch } = require("expo/fetch") as { fetch: typeof globalThis.fetch };
+    const res = await streamingFetch(url, init);
+    if (!res.ok) throw new Error(`chat ${res.status}`);
+    if (res.body) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        emitted = true;
+        onDelta(decoder.decode(value, { stream: true }));
+      }
+    }
+  } catch (e) {
+    // Half a reply already on screen means this was a real failure, not a
+    // missing module — don't run the request a second time.
+    if (emitted) throw e;
+  }
+
+  const res = await fetch(url, init);
+  if (!res.ok) throw new Error(`chat ${res.status}`);
+  onDelta(await res.text());
 }
 
 export async function fetchFramework(assetId: string): Promise<Framework> {

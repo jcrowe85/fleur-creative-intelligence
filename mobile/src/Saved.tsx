@@ -1,81 +1,118 @@
 import { useState } from "react";
-import { FlatList, Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { Directions, Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import { FlatList, Image, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Directions, Gesture, GestureDetector } from "react-native-gesture-handler";
+import { runOnJS, withSpring, type SharedValue } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoCard } from "./VideoCard";
+import { BriefSheet } from "./BriefSheet";
 import type { FeedCard } from "./types";
 
+const COLS = 3;
+const GAP = 6;
+const COMMIT_RATIO = 0.3;
+const COMMIT_VELOCITY = 800;
+const SPRING = { damping: 22, stiffness: 220, mass: 0.7 };
+
+const clock = (secs: number | null) => {
+  if (secs == null || secs <= 0) return null;
+  const m = Math.floor(secs / 60);
+  const s = Math.round(secs % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+};
+
 export function Saved({
-  visible,
   cards,
+  x,
   onClose,
   onRemove,
-  onOpenBrief,
 }: {
-  visible: boolean;
   cards: FeedCard[];
+  /** Shared with App: this screen's horizontal offset, so the drag back out
+   *  moves the screen itself rather than waiting on a transition. */
+  x: SharedValue<number>;
   onClose: () => void;
   onRemove: (id: string) => void;
-  onOpenBrief: (card: FeedCard) => void;
 }) {
   const { width, height } = useWindowDimensions();
   const [playing, setPlaying] = useState<FeedCard | null>(null);
   const [muted, setMuted] = useState(false);
 
-  // Swipe right to leave the list (back to feed) or to leave a replay (back to list).
-  const closeFling = Gesture.Fling().direction(Directions.RIGHT).runOnJS(true).onEnd(() => onClose());
+  // The brief/brainstorm sheet lives in here so it belongs to this screen.
+  const [sheetCard, setSheetCard] = useState<FeedCard | null>(null);
+  const [sheetTab, setSheetTab] = useState<"brief" | "chat">("brief");
+
+  const openSheet = (card: FeedCard, tab: "brief" | "chat") => {
+    setSheetTab(tab);
+    setSheetCard(card);
+  };
+
+  // Drag right to push this screen back off to the side — the mirror of the
+  // pull that brought it in.
+  const backPan = Gesture.Pan()
+    .activeOffsetX([-20, 20])
+    .failOffsetY([-20, 20])
+    .onUpdate((e) => {
+      if (e.translationX < 0) return;
+      x.value = Math.min(width, e.translationX);
+    })
+    .onEnd((e) => {
+      if (e.translationX > width * COMMIT_RATIO || e.velocityX > COMMIT_VELOCITY) {
+        x.value = withSpring(width, SPRING);
+        runOnJS(onClose)();
+      } else {
+        x.value = withSpring(0, SPRING);
+      }
+    });
+
+  // Inside a replay, swiping right returns to the grid rather than leaving.
   const replayFling = Gesture.Fling().direction(Directions.RIGHT).runOnJS(true).onEnd(() => setPlaying(null));
 
-  return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-      <GestureDetector gesture={closeFling}>
-      <View style={styles.root}>
-        <View style={styles.header}>
-          <Pressable onPress={onClose} hitSlop={10} style={styles.back}>
-            <Ionicons name="chevron-back" size={26} color="#fff" />
-          </Pressable>
-          <Text style={styles.title}>Your shot list</Text>
-        </View>
+  const tile = Math.floor((width - GAP * (COLS + 1)) / COLS);
 
-        {cards.length === 0 ? (
-          <Text style={styles.empty}>Nothing saved yet. Tap the bookmark on ideas you want to make.</Text>
-        ) : (
-          <FlatList
-            data={cards}
-            keyExtractor={(c) => c.id}
-            contentContainerStyle={{ padding: 16, gap: 12 }}
-            renderItem={({ item }) => (
-              <Pressable style={styles.row} onPress={() => setPlaying(item)}>
-                <View style={styles.thumb}>
-                  {item.thumbUrl ? <Image source={{ uri: item.thumbUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : null}
-                  <View style={styles.playBadge}>
-                    <Ionicons name="play" size={16} color="#fff" />
-                  </View>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <View style={styles.rowTop}>
-                    <Text style={styles.brand} numberOfLines={1}>
-                      {item.brand}
-                    </Text>
-                    <Pressable onPress={() => onRemove(item.id)} hitSlop={10}>
-                      <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
+  return (
+    <View style={styles.root}>
+      <GestureDetector gesture={backPan}>
+        <View style={{ flex: 1 }}>
+          <View style={styles.header}>
+            <Pressable onPress={onClose} hitSlop={10} style={styles.back}>
+              <Ionicons name="chevron-back" size={26} color="#fff" />
+            </Pressable>
+            <Text style={styles.title}>Your shot list</Text>
+            {cards.length > 0 ? <Text style={styles.count}>{cards.length}</Text> : null}
+          </View>
+
+          {cards.length === 0 ? (
+            <Text style={styles.empty}>Nothing saved yet. Tap the bookmark on ideas you want to make.</Text>
+          ) : (
+            <FlatList
+              data={cards}
+              keyExtractor={(c) => c.id}
+              numColumns={COLS}
+              columnWrapperStyle={{ gap: GAP, paddingHorizontal: GAP }}
+              contentContainerStyle={{ gap: GAP, paddingVertical: GAP }}
+              renderItem={({ item }) => {
+                const len = clock(item.durationSec);
+                return (
+                  <Pressable onPress={() => setPlaying(item)} style={[styles.tile, { width: tile, height: tile * (16 / 9) }]}>
+                    {item.thumbUrl ? (
+                      <Image source={{ uri: item.thumbUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                    ) : null}
+
+                    {/* remove without opening — creators prune this list fast */}
+                    <Pressable onPress={() => onRemove(item.id)} hitSlop={8} style={styles.tileX}>
+                      <Ionicons name="close" size={13} color="#fff" />
                     </Pressable>
-                  </View>
-                  {item.hookText ? (
-                    <Text style={styles.hook} numberOfLines={2}>
-                      &ldquo;{item.hookText}&rdquo;
-                    </Text>
-                  ) : null}
-                  <Text style={styles.meta}>
-                    {item.pillar} · {item.daysRunning ?? "?"}d
-                  </Text>
-                </View>
-              </Pressable>
-            )}
-          />
-        )}
-      </View>
+
+                    <View style={styles.tileFoot}>
+                      <Ionicons name="play" size={11} color="#fff" />
+                      {len ? <Text style={styles.tileLen}>{len}</Text> : null}
+                    </View>
+                  </Pressable>
+                );
+              }}
+            />
+          )}
+        </View>
       </GestureDetector>
 
       {/* replay a saved video full-screen */}
@@ -85,6 +122,7 @@ export function Saved({
             <VideoCard
               card={playing}
               active
+              paused={sheetCard !== null}
               muted={muted}
               width={width}
               height={height}
@@ -94,7 +132,8 @@ export function Saved({
                 onRemove(playing.id);
                 setPlaying(null);
               }}
-              onOpenBrief={() => onOpenBrief(playing)}
+              onOpenBrief={() => openSheet(playing, "brief")}
+              onOpenChat={() => openSheet(playing, "chat")}
             />
             <Pressable onPress={() => setPlaying(null)} hitSlop={10} style={styles.replayBack}>
               <Ionicons name="chevron-back" size={28} color="#fff" />
@@ -102,23 +141,51 @@ export function Saved({
           </View>
         </GestureDetector>
       ) : null}
-      </GestureHandlerRootView>
-    </Modal>
+
+      <BriefSheet card={sheetCard} initialTab={sheetTab} onClose={() => setSheetCard(null)} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#0a0a0a" },
-  header: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 56, paddingBottom: 14, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(255,255,255,0.1)" },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingTop: 56,
+    paddingBottom: 14,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(255,255,255,0.1)",
+  },
   back: { padding: 4 },
-  title: { color: "#fff", fontSize: 17, fontWeight: "700" },
+  title: { color: "#fff", fontSize: 17, fontWeight: "700", flex: 1 },
+  count: { color: "rgba(255,255,255,0.5)", fontSize: 15, fontWeight: "600" },
   empty: { color: "rgba(255,255,255,0.6)", fontSize: 14, padding: 24 },
-  row: { flexDirection: "row", gap: 12, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 14, padding: 12 },
-  thumb: { height: 96, width: 64, borderRadius: 10, overflow: "hidden", backgroundColor: "#000" },
-  playBadge: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.2)" },
-  rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  brand: { color: "#fff", fontSize: 14, fontWeight: "700", flex: 1 },
-  hook: { color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 2 },
-  meta: { color: "rgba(255,255,255,0.5)", fontSize: 11, marginTop: 6 },
-  replayBack: { position: "absolute", top: 52, left: 12, height: 40, width: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center" },
+  tile: { borderRadius: 8, overflow: "hidden", backgroundColor: "#151515" },
+  tileX: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    height: 22,
+    width: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tileFoot: { position: "absolute", left: 6, bottom: 6, flexDirection: "row", alignItems: "center", gap: 4 },
+  tileLen: { color: "#fff", fontSize: 11, fontWeight: "600", textShadowColor: "rgba(0,0,0,0.8)", textShadowRadius: 3 },
+  replayBack: {
+    position: "absolute",
+    top: 52,
+    left: 12,
+    height: 40,
+    width: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

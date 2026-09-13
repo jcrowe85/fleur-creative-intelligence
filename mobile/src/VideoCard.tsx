@@ -1,5 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useEvent } from "expo";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Gesture, GestureDetector, type GestureType } from "react-native-gesture-handler";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -8,26 +10,44 @@ import type { FeedCard } from "./types";
 const compact = (n: number | null) =>
   n == null ? "—" : Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);
 
+const clock = (secs: number) => {
+  if (!Number.isFinite(secs) || secs < 0) return "0:00";
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+};
+
 export function VideoCard({
   card,
   active,
+  paused = false,
   muted,
   width,
   height,
   isSaved,
+  outerGesture,
   onToggleMute,
   onToggleSave,
   onOpenBrief,
+  onOpenChat,
 }: {
   card: FeedCard;
   active: boolean;
+  /** Held open by something above the feed (the saved list, say) — stop playing
+   *  but keep our place, unlike scrolling away which rewinds. */
+  paused?: boolean;
   muted: boolean;
   width: number;
   height: number;
   isSaved: boolean;
+  /** The screen-level swipe gesture, so scrubbing can block it — otherwise
+   *  dragging the bar leftwards would also drag the saved screen in. */
+  outerGesture?: GestureType;
   onToggleMute: () => void;
   onToggleSave: () => void;
   onOpenBrief: () => void;
+  /** Opens the sheet straight on the brainstorm tab. Omitted = no rail button. */
+  onOpenChat?: () => void;
 }) {
   // One native player per card. Native playback = no autoplay/gesture restriction
   // and proper buffering, so sound and playback are reliable (the whole reason we
@@ -35,20 +55,75 @@ export function VideoCard({
   const player = useVideoPlayer(card.mediaUrl ? { uri: card.mediaUrl } : null, (p) => {
     p.loop = true;
     p.muted = muted;
+    // Without an interval the player emits no timeUpdate at all, and the bar
+    // would never move.
+    p.timeUpdateEventInterval = 0.25;
   });
+
+  const [scrubbing, setScrubbing] = useState(false);
+  const [scrubRatio, setScrubRatio] = useState(0);
 
   useEffect(() => {
     player.muted = muted;
   }, [muted, player]);
 
   useEffect(() => {
-    if (active) {
-      player.play();
-    } else {
+    if (!active) {
       player.pause();
       player.currentTime = 0;
+      return;
     }
-  }, [active, player]);
+    if (paused) {
+      player.pause();
+      return;
+    }
+    player.play();
+  }, [active, paused, player]);
+
+  // Player properties don't drive React state, so the paused glyph listens to
+  // the player's own event instead of reading player.playing on each render.
+  const { isPlaying } = useEvent(player, "playingChange", { isPlaying: player.playing });
+  const { currentTime } = useEvent(player, "timeUpdate", {
+    currentTime: player.currentTime,
+    bufferedPosition: player.bufferedPosition,
+    currentLiveTimestamp: null,
+    currentOffsetFromLive: null,
+  });
+
+  const duration = player.duration;
+  const hasTrack = !!card.mediaUrl && Number.isFinite(duration) && duration > 0;
+  // While dragging, the finger is the source of truth — timeUpdate lags behind
+  // the seek and would make the bar stutter backwards.
+  const progress = scrubbing ? scrubRatio : duration > 0 ? Math.min(1, currentTime / duration) : 0;
+
+  const togglePlay = () => {
+    if (player.playing) player.pause();
+    else player.play();
+  };
+
+  const scrub = useMemo(() => {
+    const seekTo = (x: number) => {
+      const d = player.duration;
+      if (!Number.isFinite(d) || d <= 0) return;
+      const ratio = Math.min(1, Math.max(0, x / width));
+      setScrubRatio(ratio);
+      player.currentTime = ratio * d;
+    };
+
+    // runOnJS: these touch the player and React state directly.
+    const g = Gesture.Pan()
+      .minDistance(0)
+      .runOnJS(true)
+      .onBegin((e) => {
+        setScrubbing(true);
+        seekTo(e.x);
+      })
+      .onUpdate((e) => seekTo(e.x))
+      .onEnd(() => setScrubbing(false))
+      .onFinalize(() => setScrubbing(false));
+
+    return outerGesture ? g.blocksExternalGesture(outerGesture) : g;
+  }, [outerGesture, player, width]);
 
   return (
     <View style={{ width, height, backgroundColor: "#000" }}>
@@ -57,6 +132,20 @@ export function VideoCard({
       ) : null}
       {card.mediaUrl ? (
         <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
+      ) : null}
+
+      {/* Tap anywhere on the frame to pause or resume. This sits above the video
+          but below the rail, so the rail buttons keep their own taps. */}
+      {card.mediaUrl ? (
+        <Pressable style={StyleSheet.absoluteFill} onPress={togglePlay}>
+          {active && !isPlaying && !scrubbing ? (
+            <View style={styles.pausedWrap} pointerEvents="none">
+              <View style={styles.pausedGlyph}>
+                <Ionicons name="play" size={44} color="#fff" style={{ marginLeft: 5 }} />
+              </View>
+            </View>
+          ) : null}
+        </Pressable>
       ) : null}
 
       {/* legibility scrims — real gradients, not flat boxes */}
@@ -92,10 +181,13 @@ export function VideoCard({
         </Text>
       </View>
 
-      {/* right rail: mute, brief, save */}
+      {/* right rail: mute, brief, brainstorm, save */}
       <View style={styles.rail}>
         <RailButton onPress={onToggleMute} icon={muted ? "volume-mute" : "volume-high"} label={muted ? "Muted" : "Sound"} />
         <RailButton onPress={onOpenBrief} icon="sparkles" label="Brief" />
+        {onOpenChat ? (
+          <RailButton onPress={onOpenChat} icon="chatbubble-ellipses-outline" label="Brainstorm" />
+        ) : null}
         <RailButton
           onPress={onToggleSave}
           icon={isSaved ? "bookmark" : "bookmark-outline"}
@@ -105,6 +197,25 @@ export function VideoCard({
           iconColor={isSaved ? "#000" : "#fff"}
         />
       </View>
+
+      {/* Scrub track along the bottom: a hairline while playing, thickening into
+          a draggable bar with a time readout the moment a thumb lands on it. */}
+      {hasTrack ? (
+        <GestureDetector gesture={scrub}>
+          <View style={styles.scrubHit}>
+            {scrubbing ? (
+              <View style={styles.timeWrap} pointerEvents="none">
+                <Text style={styles.timeNow}>{clock(progress * duration)}</Text>
+                <Text style={styles.timeTotal}> / {clock(duration)}</Text>
+              </View>
+            ) : null}
+            <View style={[styles.track, scrubbing && styles.trackBig]}>
+              <View style={[styles.fill, { width: `${progress * 100}%` }]} />
+              {scrubbing ? <View style={[styles.knob, { left: `${progress * 100}%` }]} /> : null}
+            </View>
+          </View>
+        </GestureDetector>
+      ) : null}
     </View>
   );
 }
@@ -142,13 +253,30 @@ function RailButton({
 }
 
 const styles = StyleSheet.create({
+  pausedWrap: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pausedGlyph: {
+    height: 88,
+    width: 88,
+    borderRadius: 44,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   topScrim: { position: "absolute", top: 0, left: 0, right: 0, height: 150 },
   bottomScrim: { position: "absolute", bottom: 0, left: 0, right: 0, height: 380 },
   topLeft: { position: "absolute", top: 56, left: 16, flexDirection: "row", alignItems: "center", gap: 8 },
   brand: { color: "#fff", fontSize: 15, fontWeight: "700", textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 4 },
   thinBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(245,158,11,0.25)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
   thinText: { color: "#fde68a", fontSize: 11, fontWeight: "600" },
-  bottomLeft: { position: "absolute", left: 16, right: 84, bottom: 40, gap: 10 },
+  bottomLeft: { position: "absolute", left: 16, right: 84, bottom: 52, gap: 10 },
   hook: { color: "#fff", fontSize: 16, fontWeight: "500", lineHeight: 21, textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 4 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   chip: { backgroundColor: "rgba(255,255,255,0.18)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
@@ -158,4 +286,24 @@ const styles = StyleSheet.create({
   railBtn: { alignItems: "center", gap: 4 },
   railIcon: { height: 48, width: 48, borderRadius: 24, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center" },
   railLabel: { color: "rgba(255,255,255,0.9)", fontSize: 11, fontWeight: "600" },
+
+  // A 44pt grab area so a thumb can find a 2.5pt line.
+  scrubHit: { position: "absolute", left: 0, right: 0, bottom: 0, height: 44, justifyContent: "flex-end", paddingBottom: 14 },
+  track: { height: 2.5, backgroundColor: "rgba(255,255,255,0.3)", borderRadius: 2 },
+  trackBig: { height: 5, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.35)" },
+  fill: { height: "100%", backgroundColor: "#fff", borderRadius: 3 },
+  knob: { position: "absolute", top: -5, marginLeft: -7.5, height: 15, width: 15, borderRadius: 8, backgroundColor: "#fff" },
+  timeWrap: {
+    position: "absolute",
+    bottom: 34,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  timeNow: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  timeTotal: { color: "rgba(255,255,255,0.6)", fontSize: 14, fontWeight: "600" },
 });
