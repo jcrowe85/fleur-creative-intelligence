@@ -24,7 +24,7 @@ export default function App() {
   // whether the creator has picked content types yet.
   useEffect(() => {
     const started = Date.now();
-    const MIN_SPLASH = 1300; // let the logo animation breathe
+    const MIN_SPLASH = 2200; // let the chrome + light-sweep animation read
     const go = (r: Route) => setTimeout(() => setRoute(r), Math.max(0, MIN_SPLASH - (Date.now() - started)));
     fetchContentTypes()
       .then((types) => go(types.length > 0 ? "feed" : "onboarding"))
