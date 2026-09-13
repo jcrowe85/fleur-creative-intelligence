@@ -81,6 +81,38 @@ export interface Framework {
   compliance: string[];
 }
 
+export interface ContentTypeExample {
+  key: string;
+  label: string;
+  description: string;
+  card: FeedCard | null;
+}
+
+export async function fetchExamples(): Promise<ContentTypeExample[]> {
+  const res = await authed("/api/reference/examples");
+  if (!res.ok) throw new Error(`examples ${res.status}`);
+  const data = (await res.json()) as { types?: ContentTypeExample[] };
+  return data.types ?? [];
+}
+
+export async function fetchContentTypes(): Promise<string[]> {
+  const res = await authed("/api/reference/profile");
+  if (!res.ok) throw new Error(`profile ${res.status}`);
+  const data = (await res.json()) as { contentTypes?: string[] };
+  return data.contentTypes ?? [];
+}
+
+export async function saveContentTypes(contentTypes: string[]): Promise<string[]> {
+  const res = await authed("/api/reference/profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contentTypes }),
+  });
+  if (!res.ok) throw new Error(`save profile ${res.status}`);
+  const data = (await res.json()) as { contentTypes?: string[] };
+  return data.contentTypes ?? [];
+}
+
 export async function fetchFramework(assetId: string): Promise<Framework> {
   const res = await authed(`/api/reference/framework?assetId=${encodeURIComponent(assetId)}`);
   if (!res.ok) throw new Error(`framework ${res.status}`);
