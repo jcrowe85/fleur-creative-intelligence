@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Feed } from "./src/Feed";
 import { Saved } from "./src/Saved";
 import { BriefSheet } from "./src/BriefSheet";
 import { Onboarding } from "./src/Onboarding";
+import { AnimatedSplash } from "./src/AnimatedSplash";
 import { fetchContentTypes, fetchSaved, postSave } from "./src/api";
 import type { FeedCard } from "./src/types";
 
@@ -23,9 +23,12 @@ export default function App() {
   // First run: mint the guest token (implicit) and decide onboarding vs feed by
   // whether the creator has picked content types yet.
   useEffect(() => {
+    const started = Date.now();
+    const MIN_SPLASH = 1300; // let the logo animation breathe
+    const go = (r: Route) => setTimeout(() => setRoute(r), Math.max(0, MIN_SPLASH - (Date.now() - started)));
     fetchContentTypes()
-      .then((types) => setRoute(types.length > 0 ? "feed" : "onboarding"))
-      .catch(() => setRoute("feed")); // network hiccup — don't trap them in onboarding
+      .then((types) => go(types.length > 0 ? "feed" : "onboarding"))
+      .catch(() => go("feed")); // network hiccup — don't trap them in onboarding
   }, []);
 
   useEffect(() => {
@@ -55,10 +58,7 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#000" }}>
       <StatusBar style="light" />
       {route === "loading" ? (
-        <View style={{ flex: 1, backgroundColor: "#0b0b0c", alignItems: "center", justifyContent: "center", gap: 20 }}>
-          <Text style={{ color: "#fff", fontSize: 44, fontWeight: "800", letterSpacing: -1 }}>Motif</Text>
-          <ActivityIndicator color="rgba(255,255,255,0.5)" />
-        </View>
+        <AnimatedSplash />
       ) : route === "onboarding" ? (
         <Onboarding onDone={() => setRoute("feed")} />
       ) : (
