@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getDefaultBrandId } from "@/lib/brand";
 import { createSessionToken } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -24,8 +25,9 @@ export async function POST(req: Request) {
   }
 
   const email = `guest_${randomBytes(9).toString("base64url")}@guest.fleur`;
-  const user = await db.user.create({ data: { email, status: "guest", source: src } });
+  const brandId = await getDefaultBrandId();
+  const user = await db.user.create({ data: { email, status: "guest", source: src, brandId } });
   const token = await createSessionToken(user.id);
 
-  return NextResponse.json({ token, userId: user.id });
+  return NextResponse.json({ token, userId: user.id, needsOnboarding: user.contentTypes.length === 0 });
 }

@@ -18,6 +18,19 @@ datasource db {
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
+// A brand/tenant. Fleur is the first; the model exists from the start so a public
+// multi-brand launch needs no migration. Creators belong to a brand, and gap
+// weighting (a brand's "thin" pillars) is computed per brand.
+model Brand {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+}
+
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -28,6 +41,12 @@ model User {
   /** Acquisition channel for guest signups (e.g. jointrybe, animator-ad). */
   source       String?
 
+  /** Brand/tenant this user belongs to (creators). Null for legacy/team rows. */
+  brandId String?
+  brand   Brand?  @relation(fields: [brandId], references: [id])
+  /** Content types picked at onboarding — seeds the creator's feed. */
+  contentTypes String[] @default([])
+
   lastLoginAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -36,6 +55,7 @@ model User {
   savedReferences SavedReference[]
 
   @@index([status])
+  @@index([brandId])
 }
 
 model Session {
@@ -224,6 +244,8 @@ model ReferenceAsset {
   ttAdId      String @unique // TrendTrack ad id — the upsert key
   collationId String? // TrendTrack's dedupe group across variants
   platform    String? // facebook | tiktok | google
+  /** Optional brand scoping for a public multi-brand corpus; null = shared pool. */
+  brandId     String?
 
   advertiserName String?
   advertiserId   String?
@@ -281,6 +303,7 @@ model ReferenceAsset {
   @@index([advertiserName])
   @@index([daysRunning])
   @@index([reach])
+  @@index([brandId])
 }
 
 // A creator's swipe decision on a reference ad. Right-swipe saves it to their

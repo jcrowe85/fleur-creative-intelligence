@@ -20,6 +20,8 @@ import { buildPortfolio } from "@/lib/creative/portfolio";
 import { actionedAssetIds } from "./saves";
 import { type ReferenceCard } from "./lookup";
 import { AFFINITY_ATTRS, AFFINITY_SMOOTHING, LEARNED_WEIGHT, seedAffinity } from "./capability";
+import { contentTypeSeed } from "./contentTypes";
+import { resolveBrandId } from "@/lib/brand";
 
 export interface FeedCard extends ReferenceCard {
   /** This card's pillar is one Fleur is thin on — worth a nudge in the UI. */
@@ -40,39 +42,44 @@ const attrValues = (an: { production: string; format: string; pillar: string; ho
 // row) because Vercel spreads requests across instances — an in-memory cache
 // misses too often. In-memory is layered on top to skip the DB read when warm.
 type GapWeights = { weights: Map<string, number>; max: number };
-let memGap: { at: number; value: GapWeights } | null = null;
+const memGap = new Map<string, { at: number; value: GapWeights }>(); // per brand
 const GAP_TTL_MS = 60 * 60 * 1000;
 
-async function computeGapWeights(): Promise<GapWeights> {
+async function computeGapWeights(brandId: string): Promise<GapWeights> {
+  // buildPortfolio is Fleur-only today; per-brand portfolios arrive with the
+  // public launch. The cache key is already brand-scoped so that's a drop-in.
   const portfolio = await buildPortfolio();
   const weights = new Map<string, number>();
   for (const g of portfolio.gaps) weights.set(g.pillar, (weights.get(g.pillar) ?? 0) + g.priority);
   const value: GapWeights = { weights, max: Math.max(1, ...weights.values()) };
+  const key = `gapWeights:${brandId}`;
   await db.appCache
     .upsert({
-      where: { key: "gapWeights" },
-      create: { key: "gapWeights", json: { weights: [...weights], max: value.max } },
+      where: { key },
+      create: { key, json: { weights: [...weights], max: value.max } },
       update: { json: { weights: [...weights], max: value.max } },
     })
     .catch(() => {});
-  memGap = { at: Date.now(), value };
+  memGap.set(brandId, { at: Date.now(), value });
   return value;
 }
 
-async function pillarWeights(): Promise<GapWeights> {
-  if (memGap && Date.now() - memGap.at < GAP_TTL_MS) return memGap.value;
+async function pillarWeights(brandId: string): Promise<GapWeights> {
+  const mem = memGap.get(brandId);
+  if (mem && Date.now() - mem.at < GAP_TTL_MS) return mem.value;
 
-  const row = await db.appCache.findUnique({ where: { key: "gapWeights" } }).catch(() => null);
+  const key = `gapWeights:${brandId}`;
+  const row = await db.appCache.findUnique({ where: { key } }).catch(() => null);
   if (row) {
     const data = row.json as { weights: [string, number][]; max: number };
     const value: GapWeights = { weights: new Map(data.weights), max: data.max };
-    memGap = { at: Date.now(), value };
+    memGap.set(brandId, { at: Date.now(), value });
     // Stale? Recompute now (blocking) at most once per TTL — every other request
     // in the window reads the fast row.
-    if (Date.now() - row.updatedAt.getTime() > GAP_TTL_MS) return computeGapWeights();
+    if (Date.now() - row.updatedAt.getTime() > GAP_TTL_MS) return computeGapWeights(brandId);
     return value;
   }
-  return computeGapWeights();
+  return computeGapWeights(brandId);
 }
 
 // Only the columns the feed needs — critically NOT `raw` (the full TrendTrack ad
@@ -138,8 +145,15 @@ async function learnedAffinity(userId: string): Promise<(attr: string, value: st
 }
 
 export async function buildFeed(userId: string, limit = 60): Promise<FeedCard[]> {
+  // The creator's brand (for gap weighting) and onboarding content types (which
+  // seed the feed toward their declared lanes). Content-type seed replaces the
+  // generic capability prior; the learned affinity still layers on top.
+  const user = await db.user.findUnique({ where: { id: userId }, select: { brandId: true, contentTypes: true } });
+  const brandId = await resolveBrandId(user?.brandId);
+  const seed = user && user.contentTypes.length > 0 ? contentTypeSeed(user.contentTypes) : seedAffinity;
+
   const [{ weights: pillarWeight, max: maxGap }, actioned, learned, rows] = await Promise.all([
-    pillarWeights(),
+    pillarWeights(brandId),
     actionedAssetIds(userId),
     learnedAffinity(userId),
     db.referenceAsset.findMany({
@@ -178,7 +192,7 @@ export async function buildFeed(userId: string, limit = 60): Promise<FeedCard[]>
     const vals = attrValues(an);
     let affinity = 0;
     for (const a of AFFINITY_ATTRS) {
-      affinity += seedAffinity(a, vals[a]) + LEARNED_WEIGHT * learned(a, vals[a]);
+      affinity += seed(a, vals[a]) + LEARNED_WEIGHT * learned(a, vals[a]);
     }
     const gapNorm = (pillarWeight.get(an.pillar) ?? 0) / maxGap;
     const score = W_GAP * gapNorm + W_AFFINITY * affinity + W_EXPLORE * Math.random();
