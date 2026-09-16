@@ -43,15 +43,17 @@ export async function fingerprintPending(limit = 400): Promise<FingerprintRun> {
       while (queue.length) {
         const a = queue.shift()!;
         const fp = await fingerprintVideo(a.assetKey.slice(2));
+        // Only the new columns are written. `durationSec` is empty on every row
+        // and Meta's `length` would fill it, but leaving it alone keeps this
+        // change invisible to the previous version of the app: roll the code
+        // back and nothing it reads has moved. Fill it from `fpDurationSec`
+        // once the change is kept.
         await db.creativeAsset.update({
           where: { id: a.id },
           data: {
             fpHashes: fp.hashes,
             fpDurationSec: fp.durationSec,
             fpAt: new Date(),
-            // Meta's `length` is the only duration the app ever gets; the column
-            // was empty on every row before this.
-            ...(fp.durationSec != null ? { durationSec: fp.durationSec } : {}),
           },
         });
         if (fp.hashes.length) fingerprinted++;
