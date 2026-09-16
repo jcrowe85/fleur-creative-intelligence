@@ -259,6 +259,12 @@ model CreativeAnalysis {
   reviewedBy String?
   reviewedAt DateTime?
 
+  /** Set when this analysis was copied from another upload of the same
+   *  creative rather than generated. Re-uploads are byte-identical video, so
+   *  paying for a second classification buys nothing — but the copy has to be
+   *  visible, or a family's analyses would look like independent agreement. */
+  copiedFromAssetId String?
+
   model      String
   analyzedAt DateTime @default(now())
 

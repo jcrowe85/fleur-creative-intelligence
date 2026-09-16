@@ -97,6 +97,62 @@ export async function stopRun(): Promise<void> {
   });
 }
 
+/**
+ * Copy a sibling's analysis instead of paying to classify the same video twice.
+ *
+ * Meta issues a fresh video_id on every re-upload, so one creative can arrive as
+ * a dozen CreativeAsset rows. The fingerprint families already know they are the
+ * same file; the analysis queue never did, and had re-classified 125 of them
+ * before this existed.
+ *
+ * Copying rather than skipping is deliberate. The queue selects on
+ * `analysis: null`, so an asset that is merely skipped stays null, gets picked
+ * again on the next tick, and the worker spins on it forever.
+ */
+export async function reuseFamilyAnalysis(asset: {
+  id: string;
+  familyId: string | null;
+}): Promise<boolean> {
+  if (!asset.familyId) return false;
+
+  const sibling = await db.creativeAsset.findFirst({
+    where: { familyId: asset.familyId, id: { not: asset.id }, analysis: { isNot: null } },
+    select: { id: true, analysis: true },
+    orderBy: { firstSeen: "asc" },
+  });
+  const a = sibling?.analysis;
+  if (!a) return false;
+
+  await db.creativeAnalysis.create({
+    data: {
+      assetId: asset.id,
+      transcript: a.transcript, synopsis: a.synopsis, hookText: a.hookText,
+      pillar: a.pillar, pillarConf: a.pillarConf, pillarReason: a.pillarReason,
+      secondaryPillar: a.secondaryPillar,
+      persona: a.persona, personaConf: a.personaConf,
+      hook: a.hook, hookConf: a.hookConf,
+      funnel: a.funnel, funnelConf: a.funnelConf,
+      awareness: a.awareness, format: a.format,
+      production: a.production, placementFit: a.placementFit,
+      hookStrength: a.hookStrength, messageClarity: a.messageClarity,
+      differentiation: a.differentiation,
+      productionQuality: a.productionQuality,
+      placementNativeness: a.placementNativeness,
+      complianceFlags: a.complianceFlags, critique: a.critique,
+      suggestedAdjacent: a.suggestedAdjacent,
+      model: a.model,
+      // The provenance matters downstream: without it, twelve copies of one
+      // judgement would read as twelve independent classifiers agreeing.
+      copiedFromAssetId: sibling!.id,
+    },
+  });
+  await db.creativeAsset.update({
+    where: { id: asset.id },
+    data: { attempts: 0, lastError: null },
+  });
+  return true;
+}
+
 /** One asset, start to finish. Throws so the caller can record the failure. */
 async function analyzeOne(asset: {
   id: string; assetKey: string; assetType: string; name: string;
@@ -194,7 +250,9 @@ export async function processSlice(token: string): Promise<SliceResult> {
     }
 
     try {
-      await analyzeOne(asset);
+      // A re-upload of something already classified costs a database read
+      // instead of a model call.
+      if (!(await reuseFamilyAnalysis(asset))) await analyzeOne(asset);
       done++;
       await db.creativeRun.update({
         where: { id: RUN_ID },
