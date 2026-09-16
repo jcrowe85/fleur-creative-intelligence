@@ -43,6 +43,12 @@ interface AxisCoverage {
 const money = (n: number) =>
   n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n.toFixed(0)}`;
 const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
+/** 1st, 2nd, 3rd, 4th — and 11th/12th/13th, which break the mod-10 rule. */
+const ordinal = (n: number) => {
+  const teens = n % 100;
+  if (teens >= 11 && teens <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
+};
 
 // ── Small presentational pieces ───────────────────────────────────────────────
 
@@ -612,7 +618,7 @@ export default function CreativeClient({
                       const r = a.retention;
                       const pctile =
                         r.holdPercentile != null
-                          ? `${Math.round(r.holdPercentile * 100)}th percentile of ${r.bandSize} ${r.lengthBand} videos`
+                          ? `${ordinal(Math.round(r.holdPercentile * 100))} percentile of ${r.bandSize} ${r.lengthBand} videos`
                           : null;
                       return (
                         <tr key={a.id} className="border-b border-border/60 last:border-0">
