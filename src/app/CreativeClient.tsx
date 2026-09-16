@@ -388,7 +388,15 @@ export default function CreativeClient({
   return (
     <div className="mx-auto w-full max-w-[1600px] px-4 py-8 sm:px-6">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Creative Intelligence</h1>
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Creative Intelligence</h1>
+          <a
+            href="/reports"
+            className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            What works →
+          </a>
+        </div>
         <p className="mt-1.5 max-w-3xl text-sm text-muted-foreground">
           Every video and image in the ad account, classified by pillar, persona, hook and funnel
           stage, so you can see which creative territories are occupied and which are empty. New
