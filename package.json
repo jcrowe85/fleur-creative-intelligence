@@ -17,6 +17,7 @@
     "db:status": "infisical run --env=dev -- prisma migrate status",
     "db:studio": "infisical run --env=dev -- prisma studio",
     "import:financials": "infisical run --env=prod -- tsx scripts/import-from-financials.mts",
+    "backfill:families": "infisical run --env=dev -- tsx scripts/backfill-families.mts",
     "trendtrack:spike": "infisical run --env=dev -- tsx scripts/trendtrack-spike.mts",
     "reference:ingest": "infisical run --env=dev -- tsx scripts/reference-ingest.mts",
     "reference:coverage": "infisical run --env=dev -- tsx scripts/reference-coverage.mts",

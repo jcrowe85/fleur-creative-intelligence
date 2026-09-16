@@ -434,7 +434,15 @@ export default function CreativeClient({
       ) : (
         <>
           <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <Stat label="Assets" value={String(s!.assets)} sub={`${data.counts.pending} pending`} />
+            <Stat
+              label="Creatives"
+              value={String(s!.assets)}
+              sub={
+                (data.counts.duplicateUploads > 0
+                  ? `${data.counts.uploads} uploads · `
+                  : "") + `${data.counts.pending} pending`
+              }
+            />
             <Stat
               label="Territories"
               value={String(s!.territoriesOccupied)}
@@ -606,6 +614,7 @@ export default function CreativeClient({
                               <span className="min-w-0">
                                 <span className="block truncate">{a.name}</span>
                                 <span className="block truncate text-sm text-muted-foreground">
+                                  {a.uploads > 1 ? `${a.uploads} uploads · ${a.adCount} ads · ` : ""}
                                   {a.hookText || a.critique || `${a.adCount} ads`}
                                 </span>
                               </span>

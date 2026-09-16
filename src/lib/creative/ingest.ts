@@ -7,6 +7,7 @@
 // appearing 12 times would read as 12 occupied territories.
 
 import { db } from "@/lib/db";
+import { fingerprintPending, rebuildFamilies } from "./family";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
 
@@ -261,6 +262,16 @@ export async function syncAssets(opts: { activeOnly?: boolean } = {}): Promise<S
       })),
       skipDuplicates: true,
     });
+
+    // Fingerprint what just arrived, so a re-upload of a creative we already
+    // hold folds into its family instead of becoming another "new creative".
+    // Best effort: discovery must still succeed if Meta won't serve the frames.
+    try {
+      await fingerprintPending(Math.min(fresh.length, 200));
+      await rebuildFamilies();
+    } catch (e) {
+      console.warn("fingerprinting skipped:", (e as Error).message);
+    }
   }
 
   // Only touch rows that actually changed. Day to day almost nothing does, so

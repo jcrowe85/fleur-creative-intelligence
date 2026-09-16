@@ -155,9 +155,38 @@ model CreativeAsset {
   attempts  Int     @default(0)
   lastError String?
 
+  /** Content fingerprint: 64-bit difference hashes of a few frames, and the
+   *  length Meta reports. Meta issues a fresh video_id / image_hash every time
+   *  the same file is uploaded again, so the ids alone count one creative many
+   *  times. `fpAt` marks a row as tried, failures included. */
+  fpHashes      String[]
+  fpDurationSec Float?
+  fpAt          DateTime?
+
+  /** Set when this upload is one of several of the same creative. */
+  familyId String?
+  family   CreativeFamily? @relation(fields: [familyId], references: [id])
+
   analysis CreativeAnalysis?
 
   @@index([assetType])
+  @@index([familyId])
+}
+
+// One real creative, however many times it was uploaded. Coverage, gaps,
+// redundancy and campaign grades count families — counting uploads inflated
+// every one of them (101 groups, 140 duplicate rows, a third of all spend when
+// this was measured).
+model CreativeFamily {
+  id               String   @id
+  canonicalAssetId String?
+  fingerprints     String[]
+  durationSec      Float?
+  memberCount      Int      @default(1)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  assets CreativeAsset[]
 }
 
 model CreativeAnalysis {
