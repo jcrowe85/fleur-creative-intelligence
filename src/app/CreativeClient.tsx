@@ -390,12 +390,20 @@ export default function CreativeClient({
       <header className="mb-6">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Creative Intelligence</h1>
-          <a
-            href="/reports"
-            className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            What works →
-          </a>
+          <div className="flex items-center gap-2">
+            <a
+              href="/facts"
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Product facts
+            </a>
+            <a
+              href="/reports"
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              What works →
+            </a>
+          </div>
         </div>
         <p className="mt-1.5 max-w-3xl text-sm text-muted-foreground">
           Every video and image in the ad account, classified by pillar, persona, hook and funnel
