@@ -265,6 +265,18 @@ model CreativeAnalysis {
    *  visible, or a family's analyses would look like independent agreement. */
   copiedFromAssetId String?
 
+  /** Which of the H1–H10 / R1–R8 / S1–S9 principles this creative actually
+   *  uses. The ids and their names live in lib/reference/creator-brief.ts —
+   *  the handoff's own file — so tags here and the tools named in a creator
+   *  brief can never drift apart.
+   *
+   *  `toolsAt` is what says whether tagging was attempted. An empty array on
+   *  its own cannot tell "never tagged" from "tagged, uses none of them", and
+   *  that exact conflation is what let a failed transcription be stored as a
+   *  silent advert. Null here means untagged. */
+  tools   String[]
+  toolsAt DateTime?
+
   model      String
   analyzedAt DateTime @default(now())
 

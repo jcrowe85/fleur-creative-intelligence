@@ -20,6 +20,7 @@
     "backfill:families": "infisical run --env=dev -- tsx scripts/backfill-families.mts",
     "backfill:creators": "infisical run --env=dev -- tsx scripts/backfill-creators.mts",
     "backfill:transcripts": "infisical run --env=dev -- tsx scripts/backfill-transcripts.mts",
+    "tag:principles": "infisical run --env=dev -- tsx scripts/tag-principles.mts",
     "trendtrack:spike": "infisical run --env=dev -- tsx scripts/trendtrack-spike.mts",
     "reference:ingest": "infisical run --env=dev -- tsx scripts/reference-ingest.mts",
     "reference:coverage": "infisical run --env=dev -- tsx scripts/reference-coverage.mts",
