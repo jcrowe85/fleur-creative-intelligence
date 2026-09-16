@@ -135,6 +135,56 @@ model SyncLog {
   @@index([source, startedAt])
 }
 
+// What changed in the account, computed rather than typed in.
+//
+// Donovan never wants to review anything, so every row here has to earn being
+// read. Measured against the real 18 weeks first: a naive detector emitted 36.4
+// events a week, of which 56% was top-25 leaderboard churn — a fixed-size list
+// must evict one creative for every one it admits, which is arithmetic, not
+// news — and another 24% was "stopped" firing on a truncated window.
+//
+// Dropping those took it to 13.2 a week, and gating launches at $1,000 of first
+// -week spend took it to 7.2. That last gate matters because 63% of launches
+// were under $500: a creative spending $200 in its first week is a test, not
+// news. Events are ranked by the spend at stake.
+//
+// (An earlier replay of mine reported 8.7 a week. That was wrong — it marked
+// creatives as already-seen below the material threshold, suppressing launches
+// it should have counted. The detector's own numbers are the ones above.)
+//
+// Windowing, also measured rather than assumed: every historical day in this
+// account reconciles to Meta exactly, and only the current day under-reports
+// while attribution settles. So a detector excludes the current day and
+// requires complete weeks — nothing heavier.
+model AccountEvent {
+  id String @id @default(cuid())
+  /** Deterministic (`weekOf|type|creativeId`), so re-running the detector
+   *  updates a row instead of writing a second copy of the same fact. A log
+   *  that double-reports is a log nobody trusts. */
+  key String @unique
+
+  /** Monday of the week the change happened in. */
+  weekOf DateTime @db.Date
+  /** started | stopped | dearer | cheaper */
+  type String
+
+  /** The folded creative (familyId ?? assetId). Null for account-level events. */
+  creativeId String?
+  /** The name as it read when detected — creatives get renamed. */
+  name String?
+
+  /** Spend at stake. This is what the log is ranked by, because an event on a
+   *  $40 creative and one on a $4,000 creative are not the same event. */
+  spend Decimal @db.Decimal(12, 2)
+  /** Type-specific numbers: cpaFrom/cpaTo on a move, purchases either side. */
+  detail Json?
+
+  detectedAt DateTime @default(now())
+
+  @@index([weekOf, type])
+  @@index([creativeId])
+}
+
 // ── Creative intelligence ────────────────────────────────────────────────────
 
 model CreativeAsset {
