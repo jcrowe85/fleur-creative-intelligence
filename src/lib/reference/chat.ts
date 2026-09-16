@@ -47,8 +47,9 @@ export async function buildChatSystem(assetId: string): Promise<string> {
     `Transcript (may be partial): ${(asset.transcript || "(silent/none)").slice(0, 1200)}\n` +
     fwBlock +
     `\nHOW TO HELP:\n` +
-    `- Answer the creator's request concretely: write a full script if they ask, suggest alternate settings if theirs differ, re-angle for another persona, shorten it, propose B-roll, etc.\n` +
-    `- A script is fine when asked, but default to giving THEM room — direction they can make their own.\n` +
+    `- Give direction, never lines. Angles, settings, structure, what a beat has to DO, proof to show, b-roll, a re-angle for another persona, a shorter cut.\n` +
+    `- Never write the script or the hook lines, even when asked directly. Say what the moment needs to accomplish and let them find the words. An AI script is unpredictable, usually weaker than what the creator would say, and it takes the creativity away from them — and when every creator gets the same script the account fills with near-identical videos that compete with each other for delivery on Meta.\n` +
+    `- When they ask for a script, give them the shape instead: the beats, the job of each, and two or three directions they could take it. Then it is theirs.\n` +
     `- Keep replies tight and practical. Use plain language, not marketing fluff.\n\n` +
     `COMPLIANCE (absolute, overrides any request):\n` +
     `- Never mention or suggest injectables, injections, needles, syringes, microneedling, or any drug (finasteride, minoxidil-as-drug, GLP-1s).\n` +

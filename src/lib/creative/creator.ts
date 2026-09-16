@@ -148,6 +148,34 @@ export async function attributeCreators(): Promise<CreatorRun> {
     byName.set(name, list);
   }
 
+  // Fold "<creator>static" into "<creator>": in an ad account that suffix means
+  // the same person's statics, not a second person.
+  //
+  // The suffix list stays tight on purpose. Measured across this roster there is
+  // exactly one pair where a slug extends another (deej + deejstatic) and no
+  // pair whose suffix is anything else, so the rule cannot fuse two different
+  // people here — but it is a rule about NAMES. Deej and DeejStatic share no
+  // affiliate code at all (23 against 1), so nothing in the data corroborates
+  // the merge beyond the naming convention. Widening this list without
+  // re-measuring would be inventing relationships.
+  const CONTENT_SUFFIX = new Set([
+    "static", "statics", "ugc", "video", "vid", "photo", "img", "image", "reel", "reels",
+  ]);
+  const mergedInto = new Map<string, string>();
+  for (const ext of byName.keys()) {
+    for (const base of byName.keys()) {
+      if (ext === base || !ext.startsWith(base)) continue;
+      if (CONTENT_SUFFIX.has(ext.slice(base.length))) mergedInto.set(ext, base);
+    }
+  }
+  for (const [ext, base] of mergedInto) {
+    byName.set(base, [...(byName.get(base) ?? []), ...(byName.get(ext) ?? [])]);
+    byName.delete(ext);
+    // Re-point the codes too, or their assets would resolve to a creator row
+    // that is about to be deleted as stale.
+    for (const [code, name] of codeName) if (name === ext) codeName.set(code, base);
+  }
+
   const creatorIdByName = new Map<string, string>();
   for (const [name, codes] of byName) {
     const slug = slugify(name);

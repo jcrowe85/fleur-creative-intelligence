@@ -952,7 +952,10 @@ function FrameworkView({ assetId }: { assetId: string }) {
 // ── brainstorm chat ───────────────────────────────────────────────────────────
 
 type ChatMsg = { role: "user" | "assistant"; content: string };
-const SUGGESTIONS = ["Write me a full script", "Suggest a different setting", "Make it 15 seconds", "Re-angle for postpartum"];
+// "Write me a full script" used to lead this list, which invited exactly what
+// the brief format exists to avoid — the assistant now declines those, so
+// offering it would be offering a dead end.
+const SUGGESTIONS = ["How would I shoot this?", "Suggest a different setting", "Make it 15 seconds", "Re-angle for postpartum"];
 
 function TypingDots() {
   return (
