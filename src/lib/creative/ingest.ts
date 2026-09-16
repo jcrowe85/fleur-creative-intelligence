@@ -61,16 +61,45 @@ async function graphAll<T>(path: string, params: Record<string, string> = {}): P
   }
 
   const out: T[] = [...(page.data ?? [])];
-  // Paging cursors carry their own limit, so the reduced page size sticks.
+  // Paging cursors carry their own limit, so the reduced page size sticks —
+  // which is why the guard has to allow for the smallest page size, not the
+  // largest. At limit 5 the old guard of 500 stopped after 2,500 records, and
+  // the account has over 4,000.
   let guard = 0;
-  while (page?.paging?.next && guard++ < 500) {
-    const r = await fetch(page.paging.next);
-    const next = (await r.json()) as Paged<T> & { error?: { message?: string } };
-    if (next.error) {
-      // A mid-walk refusal loses the cursor; return what we have rather than
-      // failing the whole discovery run.
-      break;
+  while (page?.paging?.next) {
+    if (guard++ > 5000) {
+      throw new Error(`Meta paging guard hit after ${out.length} records — cursor may be looping`);
     }
+
+    // A mid-walk refusal used to end the walk and return a partial list, which
+    // the caller can't tell from a complete one: discovery only ever adds rows,
+    // so the ads past the break went missing with no error and stayed missing.
+    // Retry, shrink the page if Meta says it's too big, and fail loudly if it
+    // still won't serve — an incomplete library is worse than a failed sync.
+    let next: (Paged<T> & { error?: { message?: string } }) | null = null;
+    let lastError = "";
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+      const url = new URL(page.paging.next);
+      if (REDUCE_DATA.test(lastError)) {
+        const cur = Number(url.searchParams.get("limit") ?? limit);
+        limit = Math.max(1, Math.floor(cur / 2));
+        url.searchParams.set("limit", String(limit));
+      }
+      const r = await fetch(url);
+      const body = (await r.json()) as Paged<T> & { error?: { message?: string } };
+      if (!body.error) {
+        next = body;
+        break;
+      }
+      lastError = body.error.message ?? "unknown";
+    }
+    if (!next) {
+      throw new Error(
+        `Meta paging failed after ${out.length} records (page ${guard}): ${lastError}`,
+      );
+    }
+
     page = next;
     out.push(...(page.data ?? []));
   }
@@ -88,6 +117,10 @@ interface RawAd {
     body?: string;
     thumbnail_url?: string;
     image_url?: string;
+    /** Some ads carry the asset only here and leave object_story_spec empty —
+     *  157 of Fleur's do. Omitting these fields dropped every one of them. */
+    video_id?: string;
+    image_hash?: string;
     object_story_spec?: {
       video_data?: {
         video_id?: string;
@@ -127,7 +160,7 @@ export interface DiscoveredAsset {
 
 const CREATIVE_FIELDS =
   "id,name,status,effective_status,creative{id,title,body,thumbnail_url,image_url," +
-  "object_story_spec,asset_feed_spec}";
+  "video_id,image_hash,object_story_spec,asset_feed_spec}";
 
 /**
  * Every distinct asset in the account, with the ads that run it.
@@ -150,8 +183,12 @@ export async function discoverAssets(opts: { activeOnly?: boolean } = {}): Promi
     const vd = oss.video_data;
     const ld = oss.link_data;
 
-    const videoId = vd?.video_id ?? afs.videos?.[0]?.video_id ?? null;
-    const imageHash = vd?.image_hash ?? ld?.image_hash ?? afs.images?.[0]?.hash ?? null;
+    // The nested specs first, then the top-level field. A creative that has
+    // both agrees with itself; one that has only the top-level field is an ad
+    // this used to skip entirely.
+    const videoId = vd?.video_id ?? afs.videos?.[0]?.video_id ?? c.video_id ?? null;
+    const imageHash =
+      vd?.image_hash ?? ld?.image_hash ?? afs.images?.[0]?.hash ?? c.image_hash ?? null;
 
     // Video wins when both are present — the image is only the thumbnail.
     const assetKey = videoId ? `v:${videoId}` : imageHash ? `i:${imageHash}` : null;
