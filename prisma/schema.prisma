@@ -167,10 +167,43 @@ model CreativeAsset {
   familyId String?
   family   CreativeFamily? @relation(fields: [familyId], references: [id])
 
+  /** Who made this creative, and how confident that is. `creatorSource`:
+   *  "code"   — an affiliate code in the ad name (`trybe=xxxx`). Exact.
+   *  "family" — no code on this upload, but a sibling upload of the same
+   *             creative carries one. Recovers the re-uploads that were
+   *             renamed without the code.
+   *  "name"   — only the ad-name prefix matched a known creator. Weakest;
+   *             reported separately so it never silently inflates a total. */
+  creatorId     String?
+  creator       Creator? @relation(fields: [creatorId], references: [id])
+  creatorCode   String?
+  creatorSource String?
+
   analysis CreativeAnalysis?
 
   @@index([assetType])
   @@index([familyId])
+  @@index([creatorId])
+}
+
+// A Trybe creator. Meta carries no creator field, so attribution runs off the
+// affiliate codes that appear in ad names — and one creator holds several codes
+// (different links, different months), which is why the codes live here rather
+// than being the identity themselves.
+model Creator {
+  id   String @id @default(cuid())
+  name String
+  slug String @unique
+  /** Every affiliate code seen for this creator. */
+  codes String[]
+
+  brandId   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assets CreativeAsset[]
+
+  @@index([brandId])
 }
 
 // One real creative, however many times it was uploaded. Coverage, gaps,
