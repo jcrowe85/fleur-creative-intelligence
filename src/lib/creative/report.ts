@@ -29,7 +29,7 @@ type Axis = (typeof AXES)[number];
 const WINDOW_DAYS = 14;
 
 export async function buildReport(since?: string) {
-  const [assets, daily] = await Promise.all([
+  const [assets, daily, copiedClassifications] = await Promise.all([
     db.creativeAsset.findMany({
       select: {
         id: true,
@@ -41,6 +41,11 @@ export async function buildReport(since?: string) {
           select: {
             pillar: true, persona: true, hook: true, funnel: true,
             format: true, production: true, copiedFromAssetId: true,
+            // Fetched to judge how grounded a classification is, then reduced
+            // to a boolean and dropped. Postgres has no length filter through
+            // Prisma, and the alternative — counting rows where transcript is
+            // merely non-null — would score a two-word stub as heard.
+            transcript: true,
           },
         },
       },
@@ -49,6 +54,10 @@ export async function buildReport(since?: string) {
       where: { level: "ad", ...(since ? { date: { gte: new Date(since) } } : {}) },
       select: { entityId: true, date: true, spend: true, purchases: true, purchaseValue: true },
     }),
+    // Counted across the whole library, not off the folded rows: folding keeps
+    // only the face of each family, so counting copies there reports whichever
+    // member happened to win the fold rather than how many copies exist.
+    db.creativeAnalysis.count({ where: { copiedFromAssetId: { not: null } } }),
   ]);
 
   // Fold uploads into creatives. The upload running in the most ads is the
@@ -165,6 +174,26 @@ export async function buildReport(since?: string) {
 
   const classified = scored.filter((s) => byCreative.get(s.id)?.analysis != null);
 
+  // How much of the money rests on a classification made without hearing the
+  // video. Only 286 of 1,188 canonical creatives carry a usable transcript, so
+  // the rest were judged from eight still frames plus the ad copy. That is a
+  // real difference in confidence and it should be on the page, not implied.
+  let groundedCreatives = 0;
+  let groundedSpend = 0;
+  let ungroundedCreatives = 0;
+  let ungroundedSpend = 0;
+  for (const s of scored) {
+    const a = byCreative.get(s.id)?.analysis;
+    if (!a) continue;
+    if ((a.transcript?.length ?? 0) > 40) {
+      groundedCreatives++;
+      groundedSpend += s.spend;
+    } else {
+      ungroundedCreatives++;
+      ungroundedSpend += s.spend;
+    }
+  }
+
   return {
     generatedAt: new Date().toISOString(),
     account: {
@@ -178,6 +207,16 @@ export async function buildReport(since?: string) {
       classifiedCreatives: classified.length,
     },
     benchmark,
+    /** How much confidence the classifications deserve. Not decoration: 55% of
+     *  spend is classified from stills and copy, and a page that renders those
+     *  rows identically to transcript-grounded ones overstates what it knows. */
+    quality: {
+      groundedCreatives,
+      groundedSpend,
+      ungroundedCreatives,
+      ungroundedSpend,
+      copiedClassifications,
+    },
     creatives: scored.sort((a, b) => b.spend - a.spend),
     signals,
     waste: waste(scored, benchmark),

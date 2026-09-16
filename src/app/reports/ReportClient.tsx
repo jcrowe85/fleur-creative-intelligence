@@ -103,6 +103,29 @@ export default function ReportClient({ report }: { report: Report }) {
         </p>
       ) : null}
 
+      {report.quality.ungroundedCreatives > 0 ? (
+        <p className="mt-3 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground">
+          <span className="text-foreground">
+            {report.quality.ungroundedCreatives} creatives carrying{" "}
+            {money(report.quality.ungroundedSpend)}
+          </span>{" "}
+          were classified from still frames and ad copy — the model never heard them. Against{" "}
+          {report.quality.groundedCreatives} classified with a transcript (
+          {money(report.quality.groundedSpend)}). Terms resting mostly on the first group are
+          softer than the numbers make them look.
+          {report.quality.copiedClassifications > 0 ? (
+            <>
+              {" "}
+              {report.quality.copiedClassifications === 1
+                ? "One classification in the library was copied"
+                : `${report.quality.copiedClassifications} classifications in the library were copied`}{" "}
+              from a re-upload rather than generated afresh. The rows above fold re-uploads
+              together, so that is a saved model call rather than a double count.
+            </>
+          ) : null}
+        </p>
+      ) : null}
+
       {/* ── What works, by axis ─────────────────────────────────────────── */}
       <Card className="mt-6">
         <CardHeader className="pb-2">

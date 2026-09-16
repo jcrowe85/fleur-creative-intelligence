@@ -606,13 +606,13 @@ export default function CreativeClient({
                       <th className="px-3 py-2.5 text-right">CPA</th>
                       <th
                         className="px-3 py-2.5 text-right"
-                        title="3-second views ÷ impressions. Comparable across every video."
+                        title="3-second views ÷ impressions — whether the video stops the scroll. Measured against this account it does NOT predict CPA (correlation +0.07, and the best-hooking quartile acquired slightly dearer). Read it as a delivery diagnostic, not a quality score."
                       >
                         Hook rate
                       </th>
                       <th
                         className="px-3 py-2.5 text-right"
-                        title="Thruplays ÷ 3-second views, ranked against videos of the same length — a thruplay is 15s or completion, so it means different things at different lengths."
+                        title="Thruplays ÷ 3-second views, ranked against videos of the same length — a thruplay is 15s or completion, so it means different things at different lengths. Of the retention metrics this is the one that tracks money: across 106 creatives it correlates −0.27 with CPA (the bottom quartile averaged $104, the third $77), and it holds at −0.31 within a single length band. A tendency, not a rule."
                       >
                         Hold
                       </th>
