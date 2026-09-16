@@ -25,7 +25,8 @@ import { extractFrames } from "@/lib/creative/analyze";
 import { downloadAsset } from "@/lib/creative/ingest";
 import { assembleBrief, checkBrief, LIMITS, type CreatorBrief, type CreatorBriefDraft } from "./creator-brief";
 import { CreatorBriefDraftSchema } from "./creator-brief.zod";
-import { BRIEF_SYSTEM, PRODUCT_FACTS } from "./prompts";
+import { BRIEF_SYSTEM } from "./prompts";
+import { productFacts } from "./product-facts";
 
 const MODEL = "claude-opus-5";
 /** The spec's budget. A brief runs long: 27 tools, 4–7 sections, 3–5 loops. */
@@ -139,6 +140,9 @@ async function generate(
   referenceBrand: string | null,
 ): Promise<{ brief: CreatorBrief; issues: string[] }> {
   const client = new Anthropic();
+  // Read once per brief rather than per attempt, so a repair pass is written
+  // against the same facts as the draft it is repairing.
+  const facts = await productFacts();
 
   const content: Anthropic.MessageParam["content"] = [
     { type: "text", text: userText },
@@ -157,7 +161,11 @@ async function generate(
       // is invalidated.
       system: [
         { type: "text", text: BRIEF_SYSTEM, cache_control: { type: "ephemeral" } },
-        { type: "text", text: `FLEUR PRODUCT FACTS\n\n${PRODUCT_FACTS}`, cache_control: { type: "ephemeral" } },
+        // Its own cache block: when Donovan corrects a price or lifts a claim,
+        // only this block's cache is invalidated and the toolkit prompt above
+        // keeps its hit. Editing the facts SHOULD break this cache — that is
+        // the change taking effect, not a cost to avoid.
+        { type: "text", text: `FLEUR PRODUCT FACTS\n\n${facts}`, cache_control: { type: "ephemeral" } },
       ],
       // A repair has to show the model its own draft back. The first version of
       // this sent two consecutive user turns, so the model never saw what it
