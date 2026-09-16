@@ -6,6 +6,7 @@ import { labelFor } from "@/lib/creative/taxonomy";
 import type { ReferenceCard } from "@/lib/reference/lookup";
 import type { FeedCard } from "@/lib/reference/feed";
 import type { Framework } from "@/lib/reference/framework";
+import { TOOL_NAMES, type CreatorBrief } from "@/lib/reference/creator-brief";
 
 // ── formatting ────────────────────────────────────────────────────────────────
 
@@ -723,6 +724,152 @@ function Collapsible({
   );
 }
 
+// ── creator brief (the CreatorBrief format) ──────────────────────────────────
+// A different shape from Framework, not a renamed one: the anatomy carries
+// timed loops and every section names the tools behind it. That teaching layer
+// is the point of the format, so it leads.
+
+function BriefView({ assetId }: { assetId: string }) {
+  const [brief, setBrief] = useState<CreatorBrief | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/reference/brief?assetId=${assetId}`)
+      .then(async (r) => (r.ok ? r.json() : Promise.reject(new Error((await r.json().catch(() => ({}))).error ?? "failed"))))
+      .then((d) => alive && setBrief(d.brief))
+      .catch((e: Error) => alive && setErr(e.message));
+    return () => {
+      alive = false;
+    };
+  }, [assetId]);
+
+  if (err) return <p className="text-sm text-white/50">Couldn’t build a brief for this one right now — try again in a moment.</p>;
+  if (!brief)
+    return (
+      <div className="flex items-center gap-3 py-8 text-sm text-white/60">
+        <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/25 border-t-white" />
+        Building your brief…
+      </div>
+    );
+
+  const { anatomy, framework, fleur } = brief;
+
+  return (
+    <div className="text-white">
+      <div className="pb-3 pt-1">
+        <h2 className="text-[17px] font-semibold leading-tight">{brief.title}</h2>
+        <p className="mt-1 text-[12.5px] text-white/45">
+          {brief.ref} · {Math.round(brief.durationSec)}s
+        </p>
+      </div>
+
+      <Collapsible title="Why it holds attention" defaultOpen summary={anatomy.beatLine.join(" → ")}>
+        <p className="mb-3 text-[12.5px] text-white/50">{anatomy.beatLine.join("  →  ")}</p>
+        <ol className="space-y-2.5">
+          {anatomy.loops.map((l, i) => (
+            <li key={i} className="flex gap-3">
+              <span className="mt-0.5 shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white/70">
+                {Math.round(l.openSec)}–{Math.round(l.closeSec)}s
+              </span>
+              <span className="text-[13px] leading-snug text-white/85">
+                <span className="text-white">“{l.question}”</span>
+                <span className="text-white/60"> → {l.answer}</span>
+                {l.kind !== "loop" ? (
+                  <span className="ml-1.5 rounded bg-white/10 px-1 text-[10px] uppercase tracking-wide text-white/50">
+                    {l.kind}
+                  </span>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ol>
+        {anatomy.whyLoopsWork.length > 0 && (
+          <ul className="mt-3 space-y-1.5 border-t border-white/10 pt-3">
+            {anatomy.whyLoopsWork.map((r, i) => (
+              <li key={i} className="text-[13px] leading-snug text-white/75">• {r}</li>
+            ))}
+          </ul>
+        )}
+      </Collapsible>
+
+      <Collapsible title="Section by section" summary={framework.coreMove}>
+        <p className="mb-3 text-[13px] leading-snug text-white/85">{framework.coreMove}</p>
+        <ol className="space-y-3">
+          {framework.sections.map((s, i) => (
+            <li key={i}>
+              <div className="flex items-baseline gap-2">
+                <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white/70">
+                  {s.time ?? `${Math.round(s.startSec)}–${Math.round(s.endSec)}s`}
+                </span>
+                <span className="text-[13.5px] font-semibold text-white">{s.name}</span>
+              </div>
+              <p className="mt-1 text-[13px] leading-snug text-white/85">{s.did}</p>
+              <p className="mt-0.5 text-[13px] leading-snug text-white/60">{s.why}</p>
+              {s.tools.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {s.tools.map((t) => (
+                    <span key={t} className="rounded bg-white/10 px-1.5 py-0.5 text-[10.5px] text-white/55">
+                      {TOOL_NAMES[t] ?? t}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
+      </Collapsible>
+
+      {framework.dontCopy.length > 0 && (
+        <Collapsible title="Don’t copy" summary={`${framework.dontCopy.length} to leave behind`}>
+          <ul className="space-y-1.5">
+            {framework.dontCopy.map((d, i) => (
+              <li key={i} className="text-[13px] leading-snug text-white/75">• {d}</li>
+            ))}
+          </ul>
+        </Collapsible>
+      )}
+
+      <Collapsible title="Make it Fleur" defaultOpen summary={fleur.keep.join(" → ")}>
+        <p className="text-[12.5px] uppercase tracking-wide text-white/40">Keep</p>
+        <p className="mt-1 text-[13px] leading-snug text-white/85">{fleur.keep.join("  →  ")}</p>
+
+        <p className="mt-3 text-[12.5px] uppercase tracking-wide text-white/40">Swap</p>
+        <ul className="mt-1 space-y-1.5">
+          {fleur.swaps.map((s, i) => (
+            <li key={i} className="text-[13px] leading-snug">
+              <span className="text-white/50">{s.theirs}</span>
+              <span className="text-white/30"> → </span>
+              <span className="text-white/90">{s.yours}</span>
+            </li>
+          ))}
+        </ul>
+
+        <p className="mt-3 text-[12.5px] uppercase tracking-wide text-white/40">Ideas — pick one, or invent</p>
+        <ul className="mt-1 space-y-1.5">
+          {fleur.ideas.map((idea, i) => (
+            <li key={i} className="text-[13px] leading-snug text-white/85">• {idea}</li>
+          ))}
+        </ul>
+      </Collapsible>
+
+      {fleur.check.length > 0 && (
+        <Collapsible title="Check before you post" summary={`${fleur.check.length} reminder${fleur.check.length === 1 ? "" : "s"}`}>
+          <ul className="space-y-1.5 rounded-lg bg-amber-500/10 p-3 ring-1 ring-amber-400/20">
+            {fleur.check.map((c, i) => (
+              <li key={i} className="text-[12px] leading-snug text-amber-200/90">• {c}</li>
+            ))}
+          </ul>
+        </Collapsible>
+      )}
+    </div>
+  );
+}
+
+// Kept on purpose now that BriefSheet renders BriefView: switching back is the
+// one line in BriefSheet rather than restoring a deleted component, and
+// /api/reference/framework still serves this shape for anything that needs it.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function FrameworkView({ assetId }: { assetId: string }) {
   const [fw, setFw] = useState<Framework | null>(null);
   const [err, setErr] = useState(false);
@@ -1076,7 +1223,12 @@ function BriefSheet({ card, onClose }: { card: ReferenceCard; onClose: () => voi
         </div>
         {tab === "brief" ? (
           <div ref={briefScroll} style={{ overscrollBehavior: "contain" }} className="min-h-0 flex-1 overflow-y-auto px-4 pb-8">
-            <FrameworkView key={card.id} assetId={card.id} />
+            {/* The one line that switches creators onto the new format. The
+                alongside build existed so this would be a switch rather than a
+                shape change under four consumers — FrameworkView stays below,
+                intact, so reverting is this line again. Assets still holding a
+                legacy Framework are regenerated into a brief on first open. */}
+            <BriefView key={card.id} assetId={card.id} />
           </div>
         ) : (
           <div className="min-h-0 flex-1 px-4 pb-4">
