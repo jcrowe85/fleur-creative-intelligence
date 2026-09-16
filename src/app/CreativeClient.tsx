@@ -580,7 +580,7 @@ export default function CreativeClient({
           {tab === "assets" ? (
             <Card>
               <CardContent className="overflow-x-auto p-0">
-                <table className="w-full min-w-[980px] text-base">
+                <table className="w-full min-w-[1140px] text-base">
                   <thead>
                     <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
                       <th className="px-4 py-2.5">Asset</th>
@@ -590,6 +590,18 @@ export default function CreativeClient({
                       <th className="px-3 py-2.5">Stage</th>
                       <th className="px-3 py-2.5 text-right">Spend</th>
                       <th className="px-3 py-2.5 text-right">CPA</th>
+                      <th
+                        className="px-3 py-2.5 text-right"
+                        title="3-second views ÷ impressions. Comparable across every video."
+                      >
+                        Hook rate
+                      </th>
+                      <th
+                        className="px-3 py-2.5 text-right"
+                        title="Thruplays ÷ 3-second views, ranked against videos of the same length — a thruplay is 15s or completion, so it means different things at different lengths."
+                      >
+                        Hold
+                      </th>
                       <th className="px-4 py-2.5 text-right">Diff.</th>
                     </tr>
                   </thead>
@@ -597,6 +609,11 @@ export default function CreativeClient({
                     {data.assets.map((a) => {
                       const cpa =
                         a.purchases && a.purchases > 0 ? (a.spend ?? 0) / a.purchases : null;
+                      const r = a.retention;
+                      const pctile =
+                        r.holdPercentile != null
+                          ? `${Math.round(r.holdPercentile * 100)}th percentile of ${r.bandSize} ${r.lengthBand} videos`
+                          : null;
                       return (
                         <tr key={a.id} className="border-b border-border/60 last:border-0">
                           <td className="max-w-[300px] px-4 py-3">
@@ -637,6 +654,38 @@ export default function CreativeClient({
                           </td>
                           <td className="px-3 py-3 text-right tabular-nums text-sm">
                             {cpa ? `$${cpa.toFixed(0)}` : "—"}
+                          </td>
+                          <td
+                            className="px-3 py-3 text-right tabular-nums text-sm"
+                            title={
+                              r.hookRate == null
+                                ? "Under 1,000 impressions — too little delivery to judge"
+                                : undefined
+                            }
+                          >
+                            {r.hookRate != null ? `${(r.hookRate * 100).toFixed(0)}%` : "—"}
+                          </td>
+                          <td
+                            className="px-3 py-3 text-right tabular-nums text-sm"
+                            title={
+                              pctile ??
+                              (r.holdRate == null
+                                ? "Under 1,000 impressions — too little delivery to judge"
+                                : "Not enough videos of this length to rank against")
+                            }
+                          >
+                            {r.holdRate != null ? (
+                              <>
+                                {(r.holdRate * 100).toFixed(0)}%
+                                {r.holdPercentile != null ? (
+                                  <span className="ml-1 text-xs text-muted-foreground">
+                                    p{Math.round(r.holdPercentile * 100)}
+                                  </span>
+                                ) : null}
+                              </>
+                            ) : (
+                              "—"
+                            )}
                           </td>
                           <td className="px-4 py-3 text-right tabular-nums text-sm">
                             {a.scores.differentiation}/5

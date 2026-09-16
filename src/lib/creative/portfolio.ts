@@ -19,6 +19,7 @@ import {
   type ClassifiedAsset,
 } from "@/lib/creative/coverage";
 import { familyKey } from "@/lib/creative/family";
+import { ratesFor, withBandPercentiles, type Retention } from "@/lib/creative/retention";
 
 export async function buildPortfolio(since?: string) {
   const uploads = await db.creativeAsset.findMany({
@@ -53,7 +54,19 @@ export async function buildPortfolio(since?: string) {
           entityId: { in: allAdIds },
           ...(since ? { date: { gte: new Date(since) } } : {}),
         },
-        _sum: { spend: true, purchases: true, purchaseValue: true },
+        _sum: {
+          spend: true,
+          purchases: true,
+          purchaseValue: true,
+          // Written daily since May and read by nothing until now.
+          impressions: true,
+          videoViews3s: true,
+          thruplays: true,
+          videoP25: true,
+          videoP50: true,
+          videoP75: true,
+          videoP100: true,
+        },
       })
     : [];
 
@@ -64,6 +77,13 @@ export async function buildPortfolio(since?: string) {
         spend: Number(p._sum.spend ?? 0),
         purchases: p._sum.purchases ?? 0,
         revenue: Number(p._sum.purchaseValue ?? 0),
+        impressions: p._sum.impressions ?? 0,
+        videoViews3s: p._sum.videoViews3s ?? 0,
+        thruplays: p._sum.thruplays ?? 0,
+        videoP25: p._sum.videoP25 ?? 0,
+        videoP50: p._sum.videoP50 ?? 0,
+        videoP75: p._sum.videoP75 ?? 0,
+        videoP100: p._sum.videoP100 ?? 0,
       },
     ]),
   );
@@ -102,6 +122,46 @@ export async function buildPortfolio(since?: string) {
   );
   const byFaceId = new Map(creatives.map((c) => [c.face.id, c]));
 
+  // Retention rates, folded over the same merged ad ids as spend so a creative
+  // uploaded twenty times is rated once. Kept out of `classified` on purpose:
+  // coverage, gaps and redundancy are about territory occupancy and shouldn't
+  // acquire video fields they never asked for.
+  const retentionById = new Map<string, Retention>();
+  for (const c of creatives) {
+    if (c.face.assetType !== "video") continue;
+    const totals = c.adIds.reduce(
+      (acc, id) => {
+        const p = perfByAd.get(id);
+        if (p) {
+          acc.impressions += p.impressions;
+          acc.videoViews3s += p.videoViews3s;
+          acc.thruplays += p.thruplays;
+          acc.videoP25 += p.videoP25;
+          acc.videoP50 += p.videoP50;
+          acc.videoP75 += p.videoP75;
+          acc.videoP100 += p.videoP100;
+        }
+        return acc;
+      },
+      {
+        impressions: 0,
+        videoViews3s: 0,
+        thruplays: 0,
+        videoP25: 0,
+        videoP50: 0,
+        videoP75: 0,
+        videoP100: 0,
+      },
+    );
+    // Length decides how hold and finish are read, so take it from whichever
+    // upload in the family has one.
+    const duration =
+      c.face.fpDurationSec ??
+      c.face.durationSec ??
+      null;
+    retentionById.set(c.face.id, ratesFor(totals, duration));
+  }
+
   return {
     summary: summarize(classified, flagged.length),
     coverage: {
@@ -124,12 +184,25 @@ export async function buildPortfolio(since?: string) {
       name: c.face.name,
       flags: c.face.analysis!.complianceFlags,
     })),
-    assets: classified
-      .map((c) => {
+    assets: withBandPercentiles(
+      classified.map((c) => {
         const src = byFaceId.get(c.id)!;
         const an = src.face.analysis!;
         return {
           ...c,
+          retention:
+            retentionById.get(c.id) ?? ratesFor(
+              {
+                impressions: 0,
+                videoViews3s: 0,
+                thruplays: 0,
+                videoP25: 0,
+                videoP50: 0,
+                videoP75: 0,
+                videoP100: 0,
+              },
+              null,
+            ),
           thumbUrl: src.face.thumbUrl,
           assetType: src.face.assetType,
           adCount: src.adIds.length,
@@ -147,8 +220,8 @@ export async function buildPortfolio(since?: string) {
           lowConfidence:
             Math.min(an.pillarConf, an.personaConf, an.funnelConf) < 0.5,
         };
-      })
-      .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0)),
+      }),
+    ).sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0)),
     counts: {
       /** Distinct creatives, after folding re-uploads together. */
       analyzed: creatives.length,
