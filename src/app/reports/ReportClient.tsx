@@ -126,6 +126,65 @@ export default function ReportClient({ report }: { report: Report }) {
         </p>
       ) : null}
 
+      {/* ── What changed ────────────────────────────────────────────────── */}
+      {report.events.length > 0 ? (
+        <Card className="mt-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">What changed</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Computed from delivery, complete weeks only, ranked by the spend at stake.
+              Leaderboard reshuffles and launches under $1,000 are left out deliberately — a
+              fixed list evicts one creative for every one it admits, and a creative spending
+              $200 in its first week is a test, not news.
+            </p>
+          </CardHeader>
+          <CardContent className="divide-y divide-border p-0">
+            {report.events.slice(0, 12).map((e) => {
+              const tone =
+                e.type === "dearer"
+                  ? "bg-red-500/15 text-red-400"
+                  : e.type === "cheaper"
+                    ? "bg-emerald-500/15 text-emerald-400"
+                    : e.type === "started"
+                      ? "bg-sky-500/15 text-sky-400"
+                      : "bg-muted text-muted-foreground";
+              const word =
+                e.type === "dearer"
+                  ? "costlier"
+                  : e.type === "cheaper"
+                    ? "cheaper"
+                    : e.type === "started"
+                      ? "launched"
+                      : "stopped";
+              return (
+                <div key={e.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <span className="w-20 shrink-0 tabular-nums text-xs text-muted-foreground">
+                    {e.week}
+                  </span>
+                  <span
+                    className={
+                      "w-[72px] shrink-0 rounded px-1.5 py-0.5 text-center text-[10px] font-semibold uppercase tracking-wide " +
+                      tone
+                    }
+                  >
+                    {word}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm">{e.name ?? e.creativeId}</span>
+                  {e.detail?.cpaFrom != null && e.detail?.cpaTo != null ? (
+                    <span className="shrink-0 tabular-nums text-sm text-muted-foreground">
+                      ${e.detail.cpaFrom.toFixed(0)} → ${e.detail.cpaTo.toFixed(0)}
+                    </span>
+                  ) : null}
+                  <span className="w-16 shrink-0 text-right tabular-nums text-sm">
+                    {money(e.spend)}
+                  </span>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {/* ── What works, by axis ─────────────────────────────────────────── */}
       <Card className="mt-6">
         <CardHeader className="pb-2">

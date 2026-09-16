@@ -10,6 +10,7 @@
 
 import { db } from "@/lib/db";
 import { familyKey } from "@/lib/creative/family";
+import { recentEvents } from "@/lib/creative/events";
 import {
   benchmarkOf,
   scoreCreatives,
@@ -217,6 +218,14 @@ export async function buildReport(since?: string) {
       ungroundedSpend,
       copiedClassifications,
     },
+    /** What changed lately. The week is formatted here rather than in the
+     *  client, so nothing downstream has to reason about whether a Date
+     *  survived serialisation across the server boundary. */
+    events: (await recentEvents(4)).map((e) => ({
+      ...e,
+      week: e.weekOf.toISOString().slice(0, 10),
+      detail: e.detail as { cpaFrom?: number; cpaTo?: number; purchases?: number } | null,
+    })),
     creatives: scored.sort((a, b) => b.spend - a.spend),
     signals,
     waste: waste(scored, benchmark),
