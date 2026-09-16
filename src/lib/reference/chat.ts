@@ -9,19 +9,32 @@
 import { db } from "@/lib/db";
 import { labelFor } from "@/lib/creative/taxonomy";
 import type { Framework } from "./framework";
+import { isCreatorBrief } from "./brief";
 
 export async function buildChatSystem(assetId: string): Promise<string> {
   const asset = await db.referenceAsset.findUnique({ where: { id: assetId }, include: { analysis: true } });
   if (!asset?.analysis) throw new Error("asset has no analysis");
   const an = asset.analysis;
-  const fw = (asset.framework as unknown as Framework | null) ?? null;
-
-  const fwBlock = fw
-    ? `\nFRAMEWORK ALREADY DRAFTED (build on this, don't contradict it):\n` +
+  // Two shapes share this column: the legacy Framework and the newer
+  // CreatorBrief, told apart by `version: 1`. Reading a brief as a Framework
+  // throws on `fw.beats.map` and takes the whole chat endpoint down with it.
+  const cached = asset.framework;
+  let fwBlock = "";
+  if (isCreatorBrief(cached)) {
+    fwBlock =
+      `\nBRIEF ALREADY DRAFTED (build on this, don't contradict it):\n` +
+      `Core move: ${cached.framework.coreMove}\n` +
+      `Sections: ${cached.framework.sections.map((s) => `${s.time ?? ""} ${s.name}`.trim()).join(" | ")}\n` +
+      `Keep for Fleur: ${cached.fleur.keep.join(" → ")}\n` +
+      `Swaps: ${cached.fleur.swaps.map((s) => `${s.theirs} → ${s.yours}`).join(" | ")}\n`;
+  } else if (cached) {
+    const fw = cached as unknown as Framework;
+    fwBlock =
+      `\nFRAMEWORK ALREADY DRAFTED (build on this, don't contradict it):\n` +
       `Why it works: ${fw.whyItWorks}\n` +
-      `Beats: ${fw.beats.map((b) => `${b.time} ${b.job}`).join(" | ")}\n` +
-      `Where Fleur fits: ${fw.fleurAngle}\n`
-    : "";
+      `Beats: ${(fw.beats ?? []).map((b) => `${b.time} ${b.job}`).join(" | ")}\n` +
+      `Where Fleur fits: ${fw.fleurAngle}\n`;
+  }
 
   return (
     `You are a creative-direction assistant for Fleur, a DTC hair and scalp serum brand. The product is Bloom: a water-based leave-in serum with six clinical peptides including GHK-Cu, sold mainly on subscription.\n\n` +

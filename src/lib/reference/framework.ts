@@ -283,6 +283,19 @@ export async function getOrCreateFramework(assetId: string): Promise<Framework> 
   // is the only server-side length we have. The player knows the real one.
   const duration = asset.durationSec ?? segments.at(-1)?.end ?? 0;
 
+  // A CreatorBrief (brief.ts) lives in this same Json column and is told apart
+  // by `version: 1`. Without this guard it falls straight into the legacy
+  // upgrade path below: `cached.beats` is undefined, so the shape is spread,
+  // given `beats: []` and written back — corrupting the brief — and the creator
+  // UI then throws on `fw.hookOptions.length`. Refusing is the safe move; the
+  // adapter that renders a brief through the old shape belongs in the UI
+  // migration, not in a cache read.
+  if (asset.framework && (asset.framework as { version?: unknown }).version === 1) {
+    throw new Error(
+      "This video has a CreatorBrief cached, not a Framework — read it through /api/reference/brief",
+    );
+  }
+
   if (asset.framework) {
     const cached = asset.framework as unknown as Framework;
     const timed = cached.beats?.every((b) => Number.isFinite(b.startSec) && Number.isFinite(b.endSec));

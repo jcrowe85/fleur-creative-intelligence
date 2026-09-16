@@ -104,14 +104,19 @@ function buildUserText(a: {
     // words. The difference was never structural: every field averaged about
     // twice the spec's words per item, uniformly, which is invisible when each
     // line still reads as "short" on its own.
-    // The counts have to follow the checker's short-video rule. checkBrief
-    // requires 3–4 sections and 2–3 loops under LIMITS.shortVideoSec and 5–6 /
-    // 4–5 above it, so stating one set unconditionally guaranteed an error on
-    // every short clip — the spec's own corpus includes a 14.3s one.
+    // The counts have to respect the checker's short-video rule: checkBrief
+    // requires 3–4 sections and 2–3 loops under LIMITS.shortVideoSec, against
+    // 4–7 and 3–5 above it. Stating one set unconditionally guaranteed an error
+    // on every short clip, and the spec's own corpus includes a 14.3s one.
+    //
+    // The long-form figures quoted are the tighter range the finished examples
+    // actually occupy (4–6 sections, 3–5 loops), not the checker's outer
+    // bounds, so the model aims at the corpus rather than at the limit. Quoting
+    // "5–6" as I first did would push it to pad a video with four real sections.
     `\nHOW THESE ARE WRITTEN. Finished briefs run 266–331 words with ` +
     (a.durationSec > 0 && a.durationSec < LIMITS.shortVideoSec
       ? `3–4 sections and 2–3 loops (this video is under ${LIMITS.shortVideoSec}s)`
-      : `5–6 sections and 4–5 loops`) +
+      : `4–6 sections and 3–5 loops`) +
     ` — the same shape you are writing. They fit because the register is notes, not prose. ` +
     `Fragments. No subject, no verb where the thing speaks for itself. Real briefs read like this:\n` +
     `  keep:  advice → new problem → Fleur as the answer → price with a reason   (4 steps, 11 words)\n` +
