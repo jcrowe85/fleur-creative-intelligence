@@ -139,7 +139,13 @@ export async function campaignCreatives(opts: { since?: string } = {}): Promise<
   const buckets = new Map<string, Bucket>();
   const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
 
+  // Uploads of the same creative count once. Meta issues a new id per upload,
+  // so without this a video re-uploaded per creator reads as several distinct
+  // creatives and lifts the campaign's diversity score for nothing.
+  const countedCreative = new Set<string>();
+
   for (const asset of assets) {
+    const creativeId = asset.familyId ?? asset.id;
     // An asset can run in several campaigns; count it once per campaign.
     const seenHere = new Set<string>();
     for (const adId of asset.adIds) {
@@ -157,10 +163,16 @@ export async function campaignCreatives(opts: { since?: string } = {}): Promise<
       b.ads.add(adId);
       if (seenHere.has(cid)) continue;
       seenHere.add(cid);
-      b.assetIds.add(asset.id);
+
+      // Every upload's ads still count, but the creative behind them counts
+      // once per campaign.
+      if (countedCreative.has(`${cid}|${creativeId}`)) continue;
+      countedCreative.add(`${cid}|${creativeId}`);
+      b.assetIds.add(creativeId);
+
       const an = asset.analysis;
       if (!an) {
-        b.unclassified.add(asset.id);
+        b.unclassified.add(creativeId);
         continue;
       }
       bump(b.pillar, an.pillar);

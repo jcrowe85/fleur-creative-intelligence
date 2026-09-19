@@ -43,6 +43,12 @@ interface AxisCoverage {
 const money = (n: number) =>
   n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n.toFixed(0)}`;
 const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
+/** 1st, 2nd, 3rd, 4th — and 11th/12th/13th, which break the mod-10 rule. */
+const ordinal = (n: number) => {
+  const teens = n % 100;
+  if (teens >= 11 && teens <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
+};
 
 // ── Small presentational pieces ───────────────────────────────────────────────
 
@@ -382,7 +388,23 @@ export default function CreativeClient({
   return (
     <div className="mx-auto w-full max-w-[1600px] px-4 py-8 sm:px-6">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Creative Intelligence</h1>
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Creative Intelligence</h1>
+          <div className="flex items-center gap-2">
+            <a
+              href="/facts"
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Product facts
+            </a>
+            <a
+              href="/reports"
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              What works →
+            </a>
+          </div>
+        </div>
         <p className="mt-1.5 max-w-3xl text-sm text-muted-foreground">
           Every video and image in the ad account, classified by pillar, persona, hook and funnel
           stage, so you can see which creative territories are occupied and which are empty. New
@@ -434,7 +456,15 @@ export default function CreativeClient({
       ) : (
         <>
           <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <Stat label="Assets" value={String(s!.assets)} sub={`${data.counts.pending} pending`} />
+            <Stat
+              label="Creatives"
+              value={String(s!.assets)}
+              sub={
+                (data.counts.duplicateUploads > 0
+                  ? `${data.counts.uploads} uploads · `
+                  : "") + `${data.counts.pending} pending`
+              }
+            />
             <Stat
               label="Territories"
               value={String(s!.territoriesOccupied)}
@@ -572,7 +602,7 @@ export default function CreativeClient({
           {tab === "assets" ? (
             <Card>
               <CardContent className="overflow-x-auto p-0">
-                <table className="w-full min-w-[980px] text-base">
+                <table className="w-full min-w-[1140px] text-base">
                   <thead>
                     <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
                       <th className="px-4 py-2.5">Asset</th>
@@ -582,6 +612,18 @@ export default function CreativeClient({
                       <th className="px-3 py-2.5">Stage</th>
                       <th className="px-3 py-2.5 text-right">Spend</th>
                       <th className="px-3 py-2.5 text-right">CPA</th>
+                      <th
+                        className="px-3 py-2.5 text-right"
+                        title="3-second views ÷ impressions — whether the video stops the scroll. Measured against this account it does NOT predict CPA (correlation +0.07, and the best-hooking quartile acquired slightly dearer). Read it as a delivery diagnostic, not a quality score."
+                      >
+                        Hook rate
+                      </th>
+                      <th
+                        className="px-3 py-2.5 text-right"
+                        title="Thruplays ÷ 3-second views, ranked against videos of the same length — a thruplay is 15s or completion, so it means different things at different lengths. Of the retention metrics this is the one that tracks money: across 106 creatives it correlates −0.27 with CPA (the bottom quartile averaged $104, the third $77), and it holds at −0.31 within a single length band. A tendency, not a rule."
+                      >
+                        Hold
+                      </th>
                       <th className="px-4 py-2.5 text-right">Diff.</th>
                     </tr>
                   </thead>
@@ -589,6 +631,11 @@ export default function CreativeClient({
                     {data.assets.map((a) => {
                       const cpa =
                         a.purchases && a.purchases > 0 ? (a.spend ?? 0) / a.purchases : null;
+                      const r = a.retention;
+                      const pctile =
+                        r.holdPercentile != null
+                          ? `${ordinal(Math.round(r.holdPercentile * 100))} percentile of ${r.bandSize} ${r.lengthBand} videos`
+                          : null;
                       return (
                         <tr key={a.id} className="border-b border-border/60 last:border-0">
                           <td className="max-w-[300px] px-4 py-3">
@@ -606,6 +653,7 @@ export default function CreativeClient({
                               <span className="min-w-0">
                                 <span className="block truncate">{a.name}</span>
                                 <span className="block truncate text-sm text-muted-foreground">
+                                  {a.uploads > 1 ? `${a.uploads} uploads · ${a.adCount} ads · ` : ""}
                                   {a.hookText || a.critique || `${a.adCount} ads`}
                                 </span>
                               </span>
@@ -628,6 +676,38 @@ export default function CreativeClient({
                           </td>
                           <td className="px-3 py-3 text-right tabular-nums text-sm">
                             {cpa ? `$${cpa.toFixed(0)}` : "—"}
+                          </td>
+                          <td
+                            className="px-3 py-3 text-right tabular-nums text-sm"
+                            title={
+                              r.hookRate == null
+                                ? "Under 1,000 impressions — too little delivery to judge"
+                                : undefined
+                            }
+                          >
+                            {r.hookRate != null ? `${(r.hookRate * 100).toFixed(0)}%` : "—"}
+                          </td>
+                          <td
+                            className="px-3 py-3 text-right tabular-nums text-sm"
+                            title={
+                              pctile ??
+                              (r.holdRate == null
+                                ? "Under 1,000 impressions — too little delivery to judge"
+                                : "Not enough videos of this length to rank against")
+                            }
+                          >
+                            {r.holdRate != null ? (
+                              <>
+                                {(r.holdRate * 100).toFixed(0)}%
+                                {r.holdPercentile != null ? (
+                                  <span className="ml-1 text-xs text-muted-foreground">
+                                    p{Math.round(r.holdPercentile * 100)}
+                                  </span>
+                                ) : null}
+                              </>
+                            ) : (
+                              "—"
+                            )}
                           </td>
                           <td className="px-4 py-3 text-right tabular-nums text-sm">
                             {a.scores.differentiation}/5

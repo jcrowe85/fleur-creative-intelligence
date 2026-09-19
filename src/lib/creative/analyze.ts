@@ -166,11 +166,22 @@ export async function transcribeVideo(videoBuf: Buffer): Promise<string> {
   const audioPath = join(dir, "audio.mp3");
   try {
     await writeFile(videoPath, videoBuf);
-    await execFileAsync(ffmpegPath, [
-      "-y", "-i", videoPath,
-      "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k",
-      audioPath,
-    ]);
+    try {
+      await execFileAsync(ffmpegPath, [
+        "-y", "-i", videoPath,
+        "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k",
+        audioPath,
+      ]);
+    } catch (e) {
+      const stderr = (e as { stderr?: string }).stderr ?? "";
+      // A file whose only stream is video has no audio to extract: `-vn` leaves
+      // ffmpeg nothing to encode and it exits non-zero. That is a fact about
+      // the creative — a silent advert — not a transcription failure, and
+      // logging it as one would repeat the very conflation this function was
+      // just fixed for.
+      if (/does not contain any stream|Output file is empty/i.test(stderr)) return "";
+      throw e;
+    }
     const audioBuf = await readFile(audioPath);
     if (audioBuf.byteLength < 2000) return "";
     const form = new FormData();
@@ -186,9 +197,24 @@ export async function transcribeVideo(videoBuf: Buffer): Promise<string> {
       headers: { Authorization: `Bearer ${key}` },
       body: form,
     });
-    if (!r.ok) return "";
+    if (!r.ok) {
+      // "" here is indistinguishable from a genuinely silent advert, so a real
+      // failure used to be stored as silence with nothing recorded. Not fatal —
+      // a video that cannot be transcribed is better classified from frames
+      // than not at all — but it should not happen quietly.
+      //
+      // Not the cause of this library's missing transcripts, which was
+      // measured separately: Meta serves no `source` for those videos at all
+      // (12 of 12 transcribed videos return one, 0 of 12 untranscribed ones
+      // do), so the audio was never obtainable rather than dropped here.
+      console.warn(`transcription failed (HTTP ${r.status}) — classifying from frames only`);
+      return "";
+    }
     return ((await r.json()) as { text?: string }).text?.trim() ?? "";
-  } catch {
+  } catch (e) {
+    console.warn(
+      `transcription error: ${(e as Error).message.slice(0, 120)} — classifying from frames only`,
+    );
     return "";
   } finally {
     await rm(dir, { recursive: true, force: true });

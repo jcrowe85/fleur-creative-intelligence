@@ -12,6 +12,10 @@
     {
       "path": "/api/cron/creative-analyze",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/detect-events",
+      "schedule": "45 14 * * *"
     }
   ]
 }
