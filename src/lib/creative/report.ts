@@ -175,6 +175,73 @@ export async function buildReport(since?: string) {
 
   const classified = scored.filter((s) => byCreative.get(s.id)?.analysis != null);
 
+  // Who made it. 70 creators recovered from affiliate codes, and until now
+  // nothing displayed them — which for an affiliate manager is the most useful
+  // cut in the whole dataset. Per-creator CPA spans $74 to $155 here, a wider
+  // spread than any taxonomy axis in this account.
+  // Per-ad totals. This file aggregates straight to the creative elsewhere, so
+  // there is no existing per-ad map to borrow — attribution needs one because a
+  // creator's assets are a different grouping than the creative fold.
+  const perAd = new Map<string, { spend: number; purchases: number }>();
+  for (const row of daily) {
+    const cur = perAd.get(row.entityId) ?? { spend: 0, purchases: 0 };
+    cur.spend += Number(row.spend);
+    cur.purchases += row.purchases;
+    perAd.set(row.entityId, cur);
+  }
+
+  const creatorRows = await db.creator.findMany({
+    select: { id: true, name: true, codes: true, assets: { select: { id: true, familyId: true, adIds: true } } },
+  });
+  const creators = creatorRows
+    .map((c) => {
+      const seen = new Set<string>();
+      let spend = 0;
+      let purchases = 0;
+      for (const a of c.assets) {
+        const key = familyKey(a);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        for (const id of a.adIds) {
+          const p = perAd.get(id);
+          if (p) {
+            spend += p.spend;
+            purchases += p.purchases;
+          }
+        }
+      }
+      return {
+        id: c.id,
+        name: c.name,
+        codes: c.codes.length,
+        creatives: seen.size,
+        spend,
+        purchases,
+        cpa: purchases > 0 ? spend / purchases : null,
+      };
+    })
+    .filter((c) => c.spend > 0)
+    .sort((a, b) => b.spend - a.spend);
+  const creatorSpend = creators.reduce((a, c) => a + c.spend, 0);
+
+  // Which of the H/R/S principles the library actually uses. Deliberately not
+  // ranked by performance: measured across the tagged set the tags do not
+  // predict CPA (1.35x spread, flatter than the pillar spread), so a league
+  // table would imply a signal that is not there. This is a description.
+  const taggedRows = await db.creativeAnalysis.findMany({
+    where: { toolsAt: { not: null } },
+    select: { assetId: true, tools: true },
+  });
+  const toolCounts = new Map<string, number>();
+  for (const t of taggedRows) for (const id of t.tools) toolCounts.set(id, (toolCounts.get(id) ?? 0) + 1);
+  const principles = {
+    tagged: taggedRows.length,
+    untagged: await db.creativeAnalysis.count({ where: { toolsAt: null } }),
+    counts: [...toolCounts.entries()]
+      .map(([id, n]) => ({ id, n, share: n / Math.max(taggedRows.length, 1) }))
+      .sort((a, b) => b.n - a.n),
+  };
+
   // How much of the money rests on a classification made without hearing the
   // video. Only 286 of 1,188 canonical creatives carry a usable transcript, so
   // the rest were judged from eight still frames plus the ad copy. That is a
@@ -226,6 +293,9 @@ export async function buildReport(since?: string) {
       week: e.weekOf.toISOString().slice(0, 10),
       detail: e.detail as { cpaFrom?: number; cpaTo?: number; purchases?: number } | null,
     })),
+    creators,
+    creatorSpend,
+    principles,
     creatives: scored.sort((a, b) => b.spend - a.spend),
     signals,
     waste: waste(scored, benchmark),

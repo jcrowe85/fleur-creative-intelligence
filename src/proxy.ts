@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { authBypassed } from "@/lib/dev-bypass";
 
 const AUTH_COOKIE = "fleur_creative_session";
 
@@ -9,6 +10,11 @@ const AUTH_COOKIE = "fleur_creative_session";
 // Access Layer (src/lib/dal.ts) on pages and route handlers.
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Local preview against a local database: let everything through. Requires
+  // DEV_NO_AUTH=1 AND a localhost DATABASE_URL, so it cannot engage in
+  // production even if the flag is set there by mistake.
+  if (authBypassed()) return NextResponse.next();
 
   if (pathname.startsWith("/login") || pathname.startsWith("/api/auth/session")) {
     return NextResponse.next();

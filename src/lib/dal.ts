@@ -3,6 +3,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { AUTH_COOKIE } from "@/lib/session";
+import { authBypassed } from "@/lib/dev-bypass";
 
 /** The session token from either the cookie (web) or an Authorization: Bearer
  *  header (the native app). Lets the same API serve both clients. */
@@ -21,6 +22,17 @@ export interface SessionUser {
 
 /** Resolve the session cookie to a user, or null. Never throws or redirects. */
 export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
+  // Local preview: resolve to a real team user rather than a synthetic one, so
+  // anything downstream that reads user.id still works. Gated on
+  // DEV_NO_AUTH=1 plus a localhost database — see lib/dev-bypass.ts.
+  if (authBypassed()) {
+    const local = await db.user.findFirst({
+      where: { status: "active" },
+      select: { id: true, email: true, name: true, isAdmin: true },
+    });
+    if (local) return local;
+  }
+
   const token = (await cookies()).get(AUTH_COOKIE)?.value;
   if (!token) return null;
   const session = await db.session.findUnique({

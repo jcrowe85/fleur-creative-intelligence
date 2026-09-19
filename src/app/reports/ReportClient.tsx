@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { labelFor } from "@/lib/creative/taxonomy";
+import { TOOL_NAMES, type ToolId } from "@/lib/reference/creator-brief";
 import type { Report } from "@/lib/creative/report";
 
 const money = (n: number) =>
@@ -294,6 +295,123 @@ export default function ReportClient({ report }: { report: Report }) {
           </table>
         </CardContent>
       </Card>
+
+      {/* ── Creators ────────────────────────────────────────────────────── */}
+      {report.creators.length > 0 ? (
+        <Card className="mt-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Creators</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Recovered from the <code className="text-foreground">trybe=</code> codes on each
+              creative&apos;s link — Meta carries no creator field, and one creator runs many codes.
+              Shares are of <strong>creator</strong> spend ({money(report.creatorSpend)}), not of the
+              account: the rest is TrendTrack, animator and internal creative that no creator made.
+            </p>
+          </CardHeader>
+          <CardContent className="overflow-x-auto p-0">
+            <table className="w-full min-w-[720px] text-base">
+              <thead>
+                <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+                  <th className="px-4 py-2.5">Creator</th>
+                  <th className="px-3 py-2.5 text-right">Creatives</th>
+                  <th className="px-3 py-2.5 text-right" title="How many affiliate codes resolved to this person.">
+                    Codes
+                  </th>
+                  <th className="px-3 py-2.5 text-right">Spend</th>
+                  <th className="px-3 py-2.5 text-right">Share</th>
+                  <th className="px-3 py-2.5 text-right">Purchases</th>
+                  <th className="px-4 py-2.5 text-right">CPA</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.creators.slice(0, 20).map((c) => {
+                  const vs = c.cpa != null && bench ? c.cpa / bench - 1 : null;
+                  return (
+                    <tr key={c.id} className="border-b border-border/60 last:border-0">
+                      <td className="px-4 py-3">{c.name}</td>
+                      <td className="px-3 py-3 text-right tabular-nums text-sm">{c.creatives}</td>
+                      <td className="px-3 py-3 text-right tabular-nums text-sm text-muted-foreground">
+                        {c.codes}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums text-sm">{money(c.spend)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums text-sm text-muted-foreground">
+                        {report.creatorSpend > 0
+                          ? `${((c.spend / report.creatorSpend) * 100).toFixed(1)}%`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums text-sm">{c.purchases}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-sm">
+                        {c.cpa != null ? `$${c.cpa.toFixed(0)}` : "—"}
+                        {vs != null ? (
+                          <span
+                            className={
+                              "ml-1 text-xs " +
+                              (vs <= -0.15
+                                ? "text-emerald-400"
+                                : vs >= 0.15
+                                  ? "text-red-400"
+                                  : "text-muted-foreground")
+                            }
+                          >
+                            {signed(vs)}
+                          </span>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* ── What the library does (H/R/S principles) ────────────────────── */}
+      {report.principles.counts.length > 0 ? (
+        <Card className="mt-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">What the creative actually does</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The moves from the creator toolkit, tagged on {report.principles.tagged} creatives
+              ({report.principles.untagged} untagged — tagging needs a transcript, and most of this
+              library has none). <strong>Deliberately not ranked by performance:</strong> measured
+              across the tagged set these do not predict CPA (1.35x spread, flatter than the
+              category spread), so this describes what the library does rather than what wins.
+            </p>
+          </CardHeader>
+          <CardContent className="p-4">
+            <div className="space-y-1.5">
+              {report.principles.counts.slice(0, 14).map((t) => (
+                <div key={t.id} className="flex items-center gap-3">
+                  <span className="w-10 shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
+                    {t.id}
+                  </span>
+                  <span className="w-[190px] shrink-0 truncate text-sm">
+                    {TOOL_NAMES[t.id as ToolId] ?? t.id}
+                  </span>
+                  <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                    <span
+                      className={
+                        "block h-full rounded-full " +
+                        (t.share >= 0.8 ? "bg-muted-foreground/40" : "bg-sky-500/70")
+                      }
+                      style={{ width: `${Math.max(t.share * 100, 3)}%` }}
+                    />
+                  </span>
+                  <span className="w-16 shrink-0 text-right tabular-nums text-xs text-muted-foreground">
+                    {t.n}/{report.principles.tagged}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              A bar at nearly full width is a move almost everything uses — true of the library, but
+              it cannot tell two creatives apart. The ones in the middle are where the differences
+              live.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* ── The creatives that are the account ──────────────────────────── */}
       <Card className="mt-6">
